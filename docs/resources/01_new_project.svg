@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+<title id="title">PanoPilot Wireframe 01 - New Project</title>
+<desc id="desc">Low fidelity wireframe for PanoPilot desktop application.</desc>
+<style>
+  .bg { fill:#f7f7f7; }
+  .panel { fill:#ffffff; stroke:#333; stroke-width:1.4; }
+  .subtle { fill:#efefef; stroke:#666; stroke-width:1; }
+  .dark { fill:#333; }
+  .txt { font-family: Inter, Arial, sans-serif; font-size:14px; fill:#222; }
+  .small { font-family: Inter, Arial, sans-serif; font-size:12px; fill:#333; }
+  .tiny { font-family: Inter, Arial, sans-serif; font-size:10px; fill:#444; }
+  .title { font-family: Inter, Arial, sans-serif; font-size:18px; font-weight:700; fill:#111; }
+  .label { font-family: Inter, Arial, sans-serif; font-size:12px; font-weight:600; fill:#222; }
+  .button { fill:#fff; stroke:#444; stroke-width:1.2; rx:6; ry:6; }
+  .buttonDark { fill:#333; stroke:#333; stroke-width:1.2; rx:6; ry:6; }
+  .buttonText { font-family: Inter, Arial, sans-serif; font-size:12px; font-weight:600; fill:#222; }
+  .buttonTextInv { font-family: Inter, Arial, sans-serif; font-size:12px; font-weight:600; fill:#fff; }
+  .line { stroke:#444; stroke-width:1.4; fill:none; }
+  .dash { stroke:#777; stroke-width:1.2; stroke-dasharray:5 4; fill:none; }
+  .thin { stroke:#777; stroke-width:1; fill:none; }
+  .muted { fill:#666; }
+  .clip { fill:#e8e8e8; stroke:#444; stroke-width:1.1; rx:5; ry:5; }
+  .clipSel { fill:#d8d8d8; stroke:#111; stroke-width:2; rx:5; ry:5; }
+  .marker { fill:#fff; stroke:#111; stroke-width:1.5; }
+</style>
+<rect class="bg" width="1440" height="900"/>
+
+<rect class="panel" x="20" y="18" width="1400" height="52"/>
+<text class="title" x="38" y="51">PanoPilot</text>
+<rect class="button" x="170" y="29" width="92" height="30"/>
+<text class="buttonText" x="191" y="49">New Project</text>
+<rect class="button" x="272" y="29" width="82" height="30"/>
+<text class="buttonText" x="294" y="49">Open...</text>
+<rect class="button" x="1260" y="29" width="132" height="30"/>
+<text class="buttonText" x="1290" y="49">Preferences</text>
+
+<rect class="panel" x="20" y="85" width="1400" height="665"/>
+<text class="title" x="70" y="145">Start a panoramic reframe project</text>
+<text class="txt" x="70" y="180">Add one or more DJI Osmo 360 .OSV recordings. PanoPilot will prepare them for interactive reframing.</text>
+
+<rect class="buttonDark" x="70" y="210" width="170" height="42"/>
+<text class="buttonTextInv" x="102" y="237">+ Add recordings</text>
+
+<rect class="dash" x="70" y="290" width="1300" height="350" rx="10"/>
+<text class="title" x="540" y="425">Drop .OSV files here</text>
+<text class="txt" x="485" y="458">or use “Add recordings” to select multiple clips</text>
+
+<rect class="panel" x="20" y="765" width="1400" height="115"/>
+<text class="label" x="38" y="792">Project Timeline</text>
+<line class="thin" x1="38" y1="822" x2="1402" y2="822"/>
+<text class="small muted" x="620" y="854">No clips yet</text>
+</svg>

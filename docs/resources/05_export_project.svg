@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+<title id="title">PanoPilot Wireframe 05 - Export Project</title>
+<desc id="desc">Low fidelity wireframe for PanoPilot desktop application.</desc>
+<style>
+  .bg { fill:#f7f7f7; }
+  .panel { fill:#ffffff; stroke:#333; stroke-width:1.4; }
+  .subtle { fill:#efefef; stroke:#666; stroke-width:1; }
+  .dark { fill:#333; }
+  .txt { font-family: Inter, Arial, sans-serif; font-size:14px; fill:#222; }
+  .small { font-family: Inter, Arial, sans-serif; font-size:12px; fill:#333; }
+  .tiny { font-family: Inter, Arial, sans-serif; font-size:10px; fill:#444; }
+  .title { font-family: Inter, Arial, sans-serif; font-size:18px; font-weight:700; fill:#111; }
+  .label { font-family: Inter, Arial, sans-serif; font-size:12px; font-weight:600; fill:#222; }
+  .button { fill:#fff; stroke:#444; stroke-width:1.2; rx:6; ry:6; }
+  .buttonDark { fill:#333; stroke:#333; stroke-width:1.2; rx:6; ry:6; }
+  .buttonText { font-family: Inter, Arial, sans-serif; font-size:12px; font-weight:600; fill:#222; }
+  .buttonTextInv { font-family: Inter, Arial, sans-serif; font-size:12px; font-weight:600; fill:#fff; }
+  .line { stroke:#444; stroke-width:1.4; fill:none; }
+  .dash { stroke:#777; stroke-width:1.2; stroke-dasharray:5 4; fill:none; }
+  .thin { stroke:#777; stroke-width:1; fill:none; }
+  .muted { fill:#666; }
+  .clip { fill:#e8e8e8; stroke:#444; stroke-width:1.1; rx:5; ry:5; }
+  .clipSel { fill:#d8d8d8; stroke:#111; stroke-width:2; rx:5; ry:5; }
+  .marker { fill:#fff; stroke:#111; stroke-width:1.5; }
+</style>
+<rect class="bg" width="1440" height="900"/>
+
+<rect class="panel" x="20" y="18" width="1400" height="52"/>
+<text class="title" x="38" y="51">PanoPilot — Export</text>
+
+<rect class="panel" x="270" y="110" width="900" height="660"/>
+<text class="title" x="310" y="155">Export Project</text>
+
+<text class="label" x="310" y="205">Output</text>
+<text class="small" x="310" y="235">Frame</text>
+<rect class="button" x="410" y="216" width="105" height="34"/><text class="buttonText" x="442" y="238">16:9 ▾</text>
+<text class="small" x="560" y="235">Format</text>
+<rect class="subtle" x="630" y="216" width="130" height="34"/>
+<text class="small" x="665" y="238">H.264 / MP4</text>
+
+<text class="small" x="310" y="290">Destination</text>
+<rect class="subtle" x="410" y="271" width="550" height="38"/>
+<text class="small" x="425" y="296">~/Videos/ilhabela_final.mp4</text>
+<rect class="button" x="975" y="271" width="125" height="38"/><text class="buttonText" x="1002" y="295">Browse...</text>
+
+<text class="label" x="310" y="360">Sequence</text>
+<rect class="clip" x="310" y="385" width="235" height="72"/>
+<text class="small" x="330" y="412">Clip A</text><text class="tiny" x="330" y="435">00:21 → 00:44</text>
+<rect class="clip" x="560" y="385" width="235" height="72"/>
+<text class="small" x="580" y="412">Clip B</text><text class="tiny" x="580" y="435">01:04 → 01:19</text>
+<rect class="clip" x="810" y="385" width="235" height="72"/>
+<text class="small" x="830" y="412">Clip C</text><text class="tiny" x="830" y="435">02:12 → 02:48</text>
+
+<text class="label" x="310" y="515">Export uses</text>
+<text class="small" x="330" y="545">✓ Original-quality panoramic source</text>
+<text class="small" x="330" y="570">✓ Each Clip's View Path</text>
+<text class="small" x="330" y="595">✓ Clip order and trim range</text>
+<text class="small" x="330" y="620">✓ Source audio</text>
+
+<rect class="button" x="780" y="690" width="110" height="40"/><text class="buttonText" x="815" y="715">Cancel</text>
+<rect class="buttonDark" x="905" y="690" width="195" height="40"/><text class="buttonTextInv" x="966" y="715">Export Video</text>
+</svg>

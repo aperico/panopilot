@@ -1,0 +1,23 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# IDE
+.vscode/
+
+# Media - NEVER commit original camera files
+*.OSV
+*.osv
+*.LRF
+*.lrf
+*.mp4
+*.mov
+
+# Generated content
+cache/
+output/
+tmp/
+
+# OS
+.DS_Store

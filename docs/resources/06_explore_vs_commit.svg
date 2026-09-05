@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+<title id="title">PanoPilot Wireframe 06 - Explore vs Commit</title>
+<desc id="desc">Low fidelity wireframe for PanoPilot desktop application.</desc>
+<style>
+  .bg { fill:#f7f7f7; }
+  .panel { fill:#ffffff; stroke:#333; stroke-width:1.4; }
+  .subtle { fill:#efefef; stroke:#666; stroke-width:1; }
+  .dark { fill:#333; }
+  .txt { font-family: Inter, Arial, sans-serif; font-size:14px; fill:#222; }
+  .small { font-family: Inter, Arial, sans-serif; font-size:12px; fill:#333; }
+  .tiny { font-family: Inter, Arial, sans-serif; font-size:10px; fill:#444; }
+  .title { font-family: Inter, Arial, sans-serif; font-size:18px; font-weight:700; fill:#111; }
+  .label { font-family: Inter, Arial, sans-serif; font-size:12px; font-weight:600; fill:#222; }
+  .button { fill:#fff; stroke:#444; stroke-width:1.2; rx:6; ry:6; }
+  .buttonDark { fill:#333; stroke:#333; stroke-width:1.2; rx:6; ry:6; }
+  .buttonText { font-family: Inter, Arial, sans-serif; font-size:12px; font-weight:600; fill:#222; }
+  .buttonTextInv { font-family: Inter, Arial, sans-serif; font-size:12px; font-weight:600; fill:#fff; }
+  .line { stroke:#444; stroke-width:1.4; fill:none; }
+  .dash { stroke:#777; stroke-width:1.2; stroke-dasharray:5 4; fill:none; }
+  .thin { stroke:#777; stroke-width:1; fill:none; }
+  .muted { fill:#666; }
+  .clip { fill:#e8e8e8; stroke:#444; stroke-width:1.1; rx:5; ry:5; }
+  .clipSel { fill:#d8d8d8; stroke:#111; stroke-width:2; rx:5; ry:5; }
+  .marker { fill:#fff; stroke:#111; stroke-width:1.5; }
+</style>
+<rect class="bg" width="1200" height="760"/>
+
+<text class="title" x="40" y="55">PanoPilot interaction model — explore vs commit</text>
+
+<rect class="panel" x="40" y="100" width="500" height="500"/>
+<text class="label" x="60" y="130">EXPLORE</text>
+<rect x="75" y="155" width="430" height="280" fill="#2e2e2e" stroke="#444"/>
+<text x="165" y="285" style="font-family:Inter,Arial,sans-serif;font-size:22px;fill:#ddd;">drag / zoom freely</text>
+<text class="small" x="110" y="470">• look around</text>
+<text class="small" x="110" y="495">• zoom</text>
+<text class="small" x="110" y="520">• reset view</text>
+<text class="small" x="110" y="545">• does NOT change View Path</text>
+
+<rect class="panel" x="660" y="100" width="500" height="500"/>
+<text class="label" x="680" y="130">COMMIT CAMERA POSITION</text>
+<rect x="695" y="155" width="430" height="280" fill="#2e2e2e" stroke="#444"/>
+<rect x="770" y="205" width="280" height="180" fill="#3b3b3b" stroke="#fff" stroke-width="2"/>
+<text x="822" y="300" style="font-family:Inter,Arial,sans-serif;font-size:18px;fill:#ddd;">desired frame</text>
+<rect class="buttonDark" x="815" y="470" width="190" height="42"/>
+<text class="buttonTextInv" x="860" y="496">Use this view</text>
+<text class="small" x="760" y="545">→ stores Camera Position at clip-local time</text>
+
+<path d="M550 350 C600 350 610 350 650 350" stroke="#333" stroke-width="2" fill="none"/>
+<polygon points="650,350 635,342 635,358" fill="#333"/>
+<text class="small" x="560" y="330">explicit action</text>
+
+<rect class="subtle" x="230" y="640" width="740" height="70"/>
+<text class="txt" x="260" y="670">UX invariant: exploring the 360 scene is reversible and non-destructive.</text>
+<text class="txt" x="260" y="695">The View Path changes only when the user explicitly commits a Camera Position.</text>
+</svg>
