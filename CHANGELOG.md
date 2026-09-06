@@ -1,5 +1,134 @@
 # Changelog
 
+## 0.26.0
+
+- Targets the measured 0.25 dominant stage: lens decoder read/wait.
+- Adds `--decoder auto|software|vaapi`, defaulting to `auto`.
+- Adds optional `--vaapi-device`.
+- Runtime smoke-tests the exact dual-lens OSV-to-BGR pipeline before automatic
+  VAAPI selection.
+- Falls back safely to software decoding in automatic mode.
+- Explicit VAAPI mode fails when the runtime smoke test fails.
+- Records selected decoder backend, device, fallback state, and reason per Clip.
+- Adds `decoder_backend_probe` performance measurement.
+- Updates engineering documentation through 0.26.
+
+## 0.25.0
+
+- Targets the measured 0.24 map-generation hotspot.
+- Replaces general full-array `np.remainder()` in the final composed projector
+  with a bounded one-period in-place seam wrap.
+- Preserves exact modulo semantics for the projector's atan2-derived X range.
+- Avoids changing Camera, horizon, factory stitch, or View Path semantics.
+- Adds dense equivalence regression tests for seam-wrap coordinates.
+- Retains the 0.24 map-generation versus panorama-remap performance split.
+- Updates engineering documentation through 0.25.
+
+## 0.24.0
+
+- Targets the measured 0.23 dominant stage: composed projection at 73.2% of
+  video-render time.
+- Replaces the per-frame H×W×3 float64 ray tensor with analytical component
+  rotation.
+- Combines Camera and horizon rotations into one 3×3 matrix per frame.
+- Stores reusable Output Profile NDC axes and squared axes in float32.
+- Normalizes only the rotated Y component required for latitude.
+- Reuses map arrays in-place for trigonometric and coordinate transforms.
+- Preserves the accepted composed horizon + Virtual Camera geometry.
+- Adds projection sub-profiling for map generation versus panorama remap.
+- Adds geometric and rendered-image equivalence regression tests.
+- Updates engineering documentation through 0.24.
+
+## 0.23.0
+
+- Uses the measured 0.22 user benchmark to select optimization work.
+- Adds a safe CFR source-exposure-time fast path when stream
+  `avg_frame_rate` and `r_frame_rate` agree.
+- Avoids the expensive per-frame FFprobe PTS scan for DJI CFR lens streams.
+- Preserves FFprobe frame-PTS scanning as the VFR/unknown-cadence fallback.
+- Exposes source-PTS method diagnostics in each rendered Clip.
+- Replaces NumPy float32 factory seam blending with OpenCV `blendLinear`.
+- Preserves factory calibration maps and normalized seam weights.
+- Adds regression tests for the observed 100 fps → 30 fps exposure mapping.
+- Updates engineering documentation through 0.23.
+
+## 0.22.4
+
+- Fixes final export ending one frame short on non-frame-aligned source/Clip
+  boundaries such as the 6.016 s sample at 30 fps.
+- Changes final frame allocation to rounded cumulative Project Clip boundaries.
+- Prevents the previous asymmetric ceil-like 181-frame allocation for a
+  180.48-frame Clip duration.
+- Keeps one Project-wide CFR clock and minimizes each boundary quantization
+  error to approximately half one output frame.
+- Adds a bounded two-frame FFmpeg EOF clone pad for normal time-base/duration
+  rounding.
+- Adds regression tests for the exact 6.016 s / 30 fps failure case.
+
+## 0.22.3
+
+- Fixes `NameError: sys is not defined` in interactive
+  `project-rebuild-from-cache`.
+- Adds a regression check for the interactive recovery path.
+- Keeps cache source discovery and explicit Clip-order semantics unchanged.
+
+## 0.22.2
+
+- Adds preview-cache source discovery for lost-Project recovery.
+- Adds `panopilot cache-sources`.
+- Adds `panopilot project-rebuild-from-cache`.
+- Rebuild flow requires explicit Clip order rather than guessing from cache
+  timestamps.
+- Rebuilt Projects use normal durable external backups immediately.
+- Recovery output states explicitly that trims and Camera Positions cannot be
+  recovered from disposable preview metadata.
+- Adds source-discovery and Project-reconstruction regression tests.
+
+## 0.22.1
+
+- Treats Project JSON as durable user data rather than build output.
+- Every successful Project save now creates an external backup under the
+  user's XDG data directory.
+- Adds retained timestamped Project backup history plus `latest.json`.
+- Adds `panopilot project-backups`.
+- Adds `panopilot project-recover`.
+- `project-edit` warns when the requested Project is missing but a backup is
+  available.
+- Moves packaged example JSON files to `examples/`.
+- The distributable ZIP no longer contains `results/`, preventing overlay
+  updates from colliding with runtime Project/output data.
+- Adds Project backup and recovery regression tests.
+
+## 0.22.0
+
+- Adds evidence-driven final-export performance profiling.
+- Measures original lens decoder read/wait time.
+- Measures factory stitch, horizon math, View Path evaluation, composed
+  projection, and H.264 encoder write/wait time.
+- Measures overall video render, audio assembly, final mux, and verification.
+- Reports effective export-frame throughput and real-time factor.
+- Identifies the dominant measured video stage after export.
+- Adds `project-export --report` for a complete local JSON benchmark report.
+- Keeps performance instrumentation outside editing/rendering domain semantics.
+- Updates engineering documentation through 0.22.
+
+## 0.21.0
+
+- Closes SPIKE-03 as PASS after successful user validation of final Project
+  export.
+- Adds a reusable `RectilinearProjector`.
+- Composes DJI horizon correction with the Virtual Camera inverse projection.
+- Removes the intermediate full-resolution rotated equirectangular frame from
+  final export.
+- Reduces final export from two post-stitch image resamples per frame to one.
+- Caches normalized Output Profile pixel coordinates across the complete
+  export.
+- Preserves canonical Camera Position, View Path, Camera Motion, and horizon
+  semantics.
+- Adds geometric equivalence regression tests against the previous two-stage
+  projection path.
+- Updates engineering documentation through 0.21.
+
 ## 0.20.0
 
 - Adds final sequential Project export to H.264 MP4.

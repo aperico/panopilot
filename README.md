@@ -1,6 +1,6 @@
 # PanoPilot
 
-Current internal version: `0.20.0`
+Current internal version: `0.26.0`
 
 # 0.18 — Multi-Clip sequential project editing
 
@@ -994,4 +994,507 @@ Only a verified MP4 replaces the requested output path.
 The correctness-first final renderer uses a 3840×1920 internal panoramic
 representation by default. Final rendering will therefore be substantially
 slower than interactive preview.
+
+# 0.21 — Faster, Cleaner Final Projection
+
+0.20 final export has now passed user acceptance.
+
+0.21 starts performance/quality optimization without changing editing
+semantics.
+
+The previous final frame path was:
+
+```text
+factory panorama 3840×1920
+    ↓
+horizon correction remap
+    ↓
+rotated panorama 3840×1920
+    ↓
+Virtual Camera remap
+    ↓
+1920×1080 or 1080×1920 frame
+```
+
+The new path mathematically composes horizon correction with the Virtual Camera:
+
+```text
+factory panorama 3840×1920
+    ↓
+combined horizon + camera mapping
+    ↓
+1920×1080 or 1080×1920 frame
+```
+
+That removes **one complete 3840×1920 remap per exported frame**.
+
+The reusable final projector also caches the normalized Output Profile pixel
+grid for the complete export.
+
+This optimization preserves:
+
+- Camera Positions;
+- Source-Time View Paths;
+- Camera Motion easing;
+- shortest-route yaw;
+- DJI horizon correction;
+- final Output Profile geometry.
+
+The export JSON diagnostics now include:
+
+```text
+projection_pipeline:
+  factory-panorama -> composed-horizon-camera -> rectilinear
+
+post_stitch_resamples_per_frame: 1
+```
+
+SPIKE-03 is now formally closed as PASS for Iteration 1.
+
+# 0.22 — Final Export Performance Profiler
+
+The Iteration-1 functionality and final-render semantics are now frozen enough
+to optimize from measurements rather than assumptions.
+
+Every final Project export now records cumulative wall-clock time for:
+
+```text
+decoder_read_wait
+factory_stitch
+horizon_rotation_math
+view_path_evaluation
+composed_projection
+encoder_write_wait
+
+plus:
+video_render
+audio_assembly
+final_mux
+final_verification
+```
+
+After export, PanoPilot prints the dominant video stage and a compact timing
+breakdown.
+
+To preserve the full benchmark:
+
+```bash
+panopilot project-export \
+  results/panopilot_project.json \
+  -o results/final-022.mp4 \
+  --report results/export-performance.json
+```
+
+The report also includes:
+
+```text
+total export seconds
+effective output-frame fps
+real-time factor
+per-stage call count
+per-stage average milliseconds
+per-stage percentage of video render time
+```
+
+The next optimization should be selected from this report.
+
+# 0.22.1 — Project Data Safety
+
+PanoPilot Project JSON is user data and must survive replacement of the source
+checkout.
+
+Every successful Project save now creates a durable external backup under:
+
+```text
+$XDG_DATA_HOME/panopilot/project-backups/
+```
+
+or, on a normal Linux desktop:
+
+```text
+~/.local/share/panopilot/project-backups/
+```
+
+This includes Set Camera auto-saves because they use the normal Project save
+boundary.
+
+If a checkout-local Project file is accidentally removed, use:
+
+```bash
+panopilot project-backups \
+  results/panopilot_project.json
+```
+
+then:
+
+```bash
+panopilot project-recover \
+  results/panopilot_project.json
+```
+
+The distributable `panopilot.zip` also no longer contains a `results/`
+directory. Examples are under `examples/`. This prevents an ordinary overlay
+update from overwriting runtime output/project files.
+
+Historical snapshots are retained in addition to `latest.json`.
+
+# 0.22.2 — Lost-Project Reconstruction Aid
+
+A deleted Project cannot be reconstructed completely from the panoramic
+preview cache because the cache intentionally does not own trims, Camera
+Positions, Clip order, or Camera Motion edits.
+
+It can, however, recover the original source-recording paths.
+
+List candidates:
+
+```bash
+panopilot cache-sources --existing-only
+```
+
+Create a fresh Project shell interactively:
+
+```bash
+panopilot project-rebuild-from-cache \
+  results/panopilot_project.json
+```
+
+PanoPilot lists the recoverable recordings and asks for their numbers in the
+desired Clip order:
+
+```text
+Enter source numbers in desired Clip order (example: 2,1):
+```
+
+For non-interactive use:
+
+```bash
+panopilot project-rebuild-from-cache \
+  results/panopilot_project.json \
+  --indexes 2,1 \
+  --camera-motion ease-in-out \
+  --motion-amount 70
+```
+
+The rebuilt Project is immediately saved through the durable external-backup
+boundary introduced in 0.22.1.
+
+After reconstruction, open it with `project-edit` and recreate the lost trims
+and Camera Positions.
+
+# 0.22.3 — Interactive Recovery Fix
+
+Fixes the interactive `project-rebuild-from-cache` flow.
+
+0.22.2 correctly discovered cached source recordings but the interactive
+selection path referenced `sys.stdin.isatty()` without importing `sys`,
+resulting in:
+
+```text
+NameError: name 'sys' is not defined
+```
+
+0.22.3 restores the intended prompt:
+
+```text
+Enter source numbers in desired Clip order (example: 2,1):
+```
+
+Non-interactive `--indexes` behavior is unchanged.
+
+# 0.22.4 — CFR End-of-Clip Export Fix
+
+Fixes a real export failure observed on the 6.016 s DJI sample:
+
+```text
+FFmpeg lens decoder ended before the expected frame count
+for clip-1: 180/181
+```
+
+The cause was Project CFR allocation at a non-frame-aligned Clip boundary.
+
+A 6.016 s Clip at 30 fps has an exact boundary at frame 180.48. The previous
+frame-start classification gave that Clip frames `0..180` (181 frames), which
+effectively rounded the boundary upward. FFmpeg correctly produced only 180
+30-fps frames from that source interval.
+
+0.22.4 now quantizes **cumulative Clip boundaries** to the nearest global CFR
+frame:
+
+```text
+round(6.016 × 30) = 180
+```
+
+The next Clip therefore begins at Project frame 180. This preserves the
+Project-wide frame clock while limiting Clip-boundary timing error to about
+half one output frame.
+
+The lens decoder also adds a bounded two-frame EOF clone pad. This handles
+normal FFmpeg source-duration/time-base rounding at the final source frame
+without masking larger decode failures.
+
+# 0.23 — Benchmark-Driven Hotspot Optimization
+
+The 0.22 benchmark on representative user media established:
+
+```text
+Total export:            148.04 s
+Render throughput:         4.80 fps
+Real-time factor:          6.25×
+
+factory_stitch:           56.30 s  / 38.2%
+composed_projection:      43.27 s  / 29.3%
+clip_setup_source_pts:    39.48 s  / 26.8%
+decoder_read_wait:         3.81 s  /  2.6%
+encoder_write_wait:        2.02 s  /  1.4%
+```
+
+0.23 targets two high-cost stages with low semantic risk.
+
+## CFR source-time fast path
+
+DJI OSV lens streams expose matching `avg_frame_rate` and `r_frame_rate`.
+When those values agree, PanoPilot now generates the regular source exposure
+grid directly from stream metadata.
+
+This removes the expensive second per-frame FFprobe scan used only to recover
+timestamps that are already implied by the CFR stream cadence.
+
+For sources that cannot safely be classified as CFR, the existing FFprobe
+frame-PTS scan remains the fallback.
+
+Per-Clip export diagnostics now report:
+
+```text
+source_pts.method = cfr-stream-metadata
+source_pts.ffprobe_frame_scan = false
+```
+
+when the fast path is active.
+
+## Native factory seam blending
+
+The factory stitch still performs the same two calibrated lens remaps and uses
+the same normalized overlap weights.
+
+The final per-pixel blend has moved from large NumPy float32 temporaries to
+OpenCV `blendLinear`, preserving the spatial blend while executing the
+operation in optimized native code.
+
+No calibration, seam weighting, Camera, horizon, or View Path semantics change.
+
+Run the same benchmark again after updating:
+
+```bash
+panopilot project-export \
+  results/panopilot_project.json \
+  -o results/final-023-benchmark.mp4 \
+  --report results/export-performance-023.json
+```
+
+The next optimization will be chosen from the new measurements. If
+factory-stitch plus composed projection remain dominant, the next candidate is
+a direct original-lens-to-conventional-frame mapper that avoids constructing a
+complete intermediate panorama for final export.
+
+# 0.24 — Composed Projection Kernel Optimization
+
+The representative 0.23 benchmark established:
+
+```text
+69.64 s total export
+10.21 output frames/s
+2.94× real-time factor
+
+composed_projection   50.63 s / 73.2%
+factory_stitch         9.19 s / 13.3%
+decoder_read_wait      4.19 s /  6.1%
+encoder_write_wait     2.17 s /  3.1%
+source PTS setup       ~0.00 s
+```
+
+The 0.23 CFR timing fast path therefore worked: source PTS setup fell from
+39.48 seconds to approximately zero.
+
+0.24 targets the now-dominant composed projection without changing panoramic
+or Camera semantics.
+
+The previous projector built a full `H × W × 3` float64 ray tensor for every
+output frame and performed two per-pixel 3×3 transformations.
+
+The new kernel:
+
+```text
+cached float32 NDC X/Y axes
+    ↓
+Camera rotation × horizon rotation
+    ↓ one 3×3 matrix per frame
+analytical rotated X/Y/Z components
+    ↓
+longitude / latitude
+    ↓
+one panorama remap
+```
+
+Important algebraic simplification:
+
+```text
+longitude = atan2(x, z)
+```
+
+does not require a normalized ray because a positive common scale cancels.
+Only the rotated Y component is normalized for latitude.
+
+This removes:
+
+- the per-frame `H × W × 3` ray allocation;
+- one per-pixel matrix multiplication;
+- most float64 panoramic-map arithmetic;
+- several large temporary arrays.
+
+The accepted geometric model remains unchanged.
+
+The performance report now also splits composed projection into:
+
+```text
+projection_breakdown.map_generation
+projection_breakdown.panorama_remap
+```
+
+so the next step can distinguish mathematical map generation from OpenCV image
+sampling.
+
+Benchmark:
+
+```bash
+panopilot project-export \
+  results/panopilot_project.json \
+  -o results/final-024-benchmark.mp4 \
+  --report results/export-performance-024.json
+```
+
+# 0.25 — Equirectangular Seam-Wrap Hot-Path Optimization
+
+The representative 0.24 benchmark established:
+
+```text
+Total export:             41.39 s
+Render throughput:         17.18 fps
+Real-time factor:           1.75×
+
+composed_projection:       19.76 s / 48.3%
+factory_stitch:            10.40 s / 25.4%
+decoder_read_wait:          4.96 s / 12.1%
+encoder_write_wait:         2.86 s /  7.0%
+
+projection map generation: 18.88 s
+panorama remap:             0.86 s
+```
+
+The important result is that almost the complete remaining composed-projection
+cost is map generation rather than OpenCV panorama sampling.
+
+Profiling of the 0.24 projector identified a general floating-point
+`np.remainder()` across every output pixel as a disproportionately expensive
+part of the map hot path.
+
+The projector does not need general modulo arithmetic. `atan2()` constrains the
+longitude to one revolution, so the converted panorama X coordinate is bounded
+to approximately:
+
+```text
+[-0.5, panorama_width - 0.5]
+```
+
+0.25 therefore replaces:
+
+```text
+map_x = map_x % panorama_width
+```
+
+with the equivalent bounded operation:
+
+```text
+if map_x < 0:
+    map_x += panorama_width
+
+if map_x >= panorama_width:
+    map_x -= panorama_width
+```
+
+implemented as vectorized in-place NumPy operations.
+
+This is an arithmetic optimization only. It preserves the exact wrapped X map
+produced by the accepted modulo implementation for the projector's valid
+coordinate range.
+
+No Camera, horizon, seam, panorama, trim, or View Path semantics change.
+
+Benchmark with:
+
+```bash
+panopilot project-export \
+  results/panopilot_project.json \
+  -o results/final-025-benchmark.mp4 \
+  --report results/export-performance-025.json
+```
+
+If map generation falls as expected, the next dominant stage should move
+toward factory stitching and/or media decode. That measurement will determine
+whether 0.26 should fuse factory geometry toward the delivery frame or address
+another measured hotspot.
+
+# 0.26 — Runtime-Tested VAAPI Lens Decode
+
+The representative 0.25 benchmark established a new hotspot order:
+
+```text
+39.01 s total export
+18.23 output frames/s
+1.65× real-time factor
+
+decoder_read_wait       12.94 s / 33.6%
+factory_stitch           9.68 s / 25.1%
+composed_projection      9.60 s / 24.9%
+encoder_write_wait       3.46 s /  9.0%
+```
+
+0.26 therefore targets lens decoding.
+
+The default is:
+
+```text
+--decoder auto
+```
+
+PanoPilot discovers VAAPI render nodes but never selects one from advertised
+capability alone. For each source Clip it runs the exact dual-lens-to-BGR
+pipeline for one frame. Only a successful execution enables VAAPI.
+
+```text
+render-node candidate
+    ↓
+actual OSV + both lens streams
+    ↓
+VAAPI decode + software frame transfer
+    ↓
+fps/tpad + BGR + hstack
+    ↓
+pass?
+    ├─ yes → VAAPI
+    └─ no  → software fallback
+```
+
+Explicit modes are also available:
+
+```bash
+--decoder software
+--decoder vaapi --vaapi-device /dev/dri/renderD128
+```
+
+Explicit VAAPI fails if the runtime smoke test fails; it does not silently
+fall back.
+
+The export report records backend, device, fallback state, and selection reason
+for every Clip.
 

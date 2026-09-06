@@ -1,7 +1,7 @@
 # PanoPilot — System Definition
 
 Status: Draft  
-Baseline: SD-0.7  
+Baseline: SD-0.15
 Scope: Iteration 1
 
 ---
@@ -987,3 +987,205 @@ When no Clip contains source audio, the exported Project is video-only.
 PanoPilot does not replace the requested output with an incomplete render.
 Export is first written to a preparing artifact, probed and verified, and only
 then atomically promoted to the requested MP4 path.
+
+
+---
+
+# 20. Iteration-1 Architecture Gate — CLOSED
+
+Representative user media has validated PanoPilot 0.20 final sequential export
+for the Iteration-1 workflow.
+
+The end-to-end architecture gate is therefore closed for:
+
+- original OSV source authority;
+- Clip ordering and trim;
+- Camera Position persistence;
+- View Path evaluation;
+- configurable Camera Motion;
+- Project Preview;
+- final conventional H.264 MP4 export.
+
+PanoPilot 0.21 begins optimization without changing these semantics.
+
+## 20.1 Final Projection Optimization
+
+The 0.20 correctness-first final path performed:
+
+```text
+factory panorama
+→ spherical horizon remap (3840×1920)
+→ Virtual Camera remap (delivery frame)
+```
+
+0.21 composes the two inverse spherical mappings:
+
+```text
+factory panorama
+→ [horizon correction + Virtual Camera]
+→ delivery frame
+```
+
+This removes one full-resolution post-stitch image resampling operation from
+every final output frame.
+
+No Camera Position, Source Time, horizon-correction, or Output Profile semantic
+is changed by this optimization.
+
+
+---
+
+# 21. Performance Optimization Method — PanoPilot 0.22
+
+With the Iteration-1 semantic architecture closed, subsequent performance work
+shall be evidence-driven.
+
+PanoPilot now measures final-export wall-clock cost at the following semantic
+boundaries:
+
+```text
+Clip setup
+    calibration/map construction
+    source PTS inspection
+    IMU preparation
+
+Per output frame
+    decoder read/wait
+    factory stitch
+    horizon rotation math
+    View Path evaluation
+    composed rectilinear projection
+    encoder write/wait
+
+Project completion
+    video render
+    audio assembly
+    final mux
+    final verification
+```
+
+The purpose is not to create a general telemetry subsystem. The measurements
+exist to identify the dominant final-export cost on representative user media
+before selecting the next optimization.
+
+No user media or project content is transmitted; performance information is
+local process data.
+
+
+---
+
+# 22. Project Data Safety — PanoPilot 0.22.1
+
+A PanoPilot Project is user-authored persistent data and is not part of the
+application distribution.
+
+Every successful Project save produces a durable backup outside the source
+checkout using the user's XDG data directory. This protects edit state from
+accidental checkout replacement or deletion of a local development `results/`
+folder.
+
+Application distributions shall not contain a runtime `results/` directory.
+
+
+---
+
+# 23. Lost-Project Reconstruction Boundary — PanoPilot 0.22.2
+
+Disposable preview metadata may be used as a recovery aid for Source Recording
+references only.
+
+PanoPilot shall not represent Clip order, trim, Camera Positions, or Camera
+Motion as recovered unless those values came from an authoritative Project
+snapshot.
+
+When rebuilding from preview cache, the User explicitly selects source order
+and the resulting Project begins with default full-source trims and no Camera
+Positions.
+
+
+---
+
+# 24. Measured Export Hotspots — PanoPilot 0.23
+
+The accepted representative benchmark established that video rendering consumes
+approximately 99.7% of total export time.
+
+The largest measured video stages were:
+
+```text
+factory stitch         38.2%
+composed projection    29.3%
+source PTS setup       26.8%
+```
+
+PanoPilot 0.23 first removes avoidable work while keeping the accepted
+original-source rendering architecture intact.
+
+DJI lens streams classified as CFR no longer require frame-by-frame FFprobe PTS
+enumeration. Factory overlap blending executes in optimized native OpenCV code
+using the existing calibrated maps and overlap weights.
+
+
+---
+
+# 25. Final Projection Kernel — PanoPilot 0.24
+
+The 0.23 representative benchmark reduced export from 148.04 seconds to
+69.64 seconds and moved the dominant stage to composed projection.
+
+0.24 preserves the accepted spherical mapping while changing its computational
+form.
+
+For each output pixel the unnormalized Camera ray is:
+
+```text
+u = [x, y, 1]
+```
+
+Camera and horizon transforms are combined once:
+
+```text
+M = CameraInverse · HorizonInverse
+```
+
+and source components are evaluated directly:
+
+```text
+[sx, sy, sz] = u · M
+```
+
+Ray normalization is required only for `sy` before latitude calculation.
+Longitude uses `atan2(sx, sz)` directly.
+
+This removes a three-component normalized ray image and one full per-pixel
+matrix transformation from every final frame.
+
+
+---
+
+# 26. Final Projection Seam-Wrap Optimization — PanoPilot 0.25
+
+The 0.24 user benchmark measured map generation at 18.88 seconds of a
+41.39-second export, while actual panorama remap consumed only 0.86 seconds.
+
+Within the final projection map, longitude originates from `atan2` and is
+therefore bounded to one spherical revolution. General modulo is not required
+to wrap the resulting panorama X coordinate.
+
+PanoPilot 0.25 replaces general floating-point remainder with one-period
+conditional wrapping while preserving the same accepted source map.
+
+
+---
+
+# 27. Hardware Decode Selection — PanoPilot 0.26
+
+PanoPilot may use VAAPI for original OSV lens decoding, but hardware selection
+is based on executable source-specific evidence.
+
+A discovered hardware capability shall not be treated as usable until the exact
+one-frame dual-lens decode path successfully completes.
+
+Automatic failure returns to the software compatibility baseline. Project,
+Camera, trim, View Path, stitch, and output semantics are independent from the
+selected decoder backend.

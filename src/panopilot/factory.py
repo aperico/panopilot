@@ -201,22 +201,32 @@ class FactoryCalibratedMapper:
 
     def stitch(self, frame0, frame1):
         p0 = cv2.remap(
-            frame0, self.map0_x, self.map0_y,
+            frame0,
+            self.map0_x,
+            self.map0_y,
             cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_CONSTANT,
         )
         p1 = cv2.remap(
-            frame1, self.map1_x, self.map1_y,
+            frame1,
+            self.map1_x,
+            self.map1_y,
             cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_CONSTANT,
         )
 
-        out = (
-            p0.astype(np.float32) * self.w0[..., None]
-            + p1.astype(np.float32) * self.w1[..., None]
+        # The weights are already normalized per output pixel. OpenCV's
+        # blendLinear performs the same spatially varying weighted blend in
+        # optimized native code, avoiding two full float32 image conversions
+        # plus large NumPy temporaries for every panorama frame.
+        out = cv2.blendLinear(
+            p0,
+            p1,
+            self.w0,
+            self.w1,
         )
         out[self.uncovered] = 0
-        return np.clip(out, 0, 255).astype(np.uint8)
+        return out
 
 
 def load_calibration(path):

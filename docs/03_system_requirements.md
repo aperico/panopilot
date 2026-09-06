@@ -1,7 +1,7 @@
 # PanoPilot — System Requirements
 
 Status: Draft  
-Baseline: SYS-0.9  
+Baseline: SYS-0.17
 Scope: Iteration 1  
 Parent: `01_system_definition.md`  
 Use Cases: `02_use_cases.md`
@@ -1315,3 +1315,307 @@ The executable implementation now covers the functional scope of SYS-EXP-001
 through SYS-EXP-015. User-media acceptance remains required for final quality,
 performance, and real-world A/V synchronization validation on representative
 OSV Projects.
+
+
+---
+
+# 24. Optimization Requirements — PanoPilot 0.21
+
+## SYS-PERF-004 — Composed Final Projection
+
+During final export with horizon correction enabled, PanoPilot shall compose
+the horizon-correction inverse mapping with the Virtual Camera inverse mapping
+before panorama sampling.
+
+**Priority:** SHOULD  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+## SYS-PERF-005 — Single Post-Stitch Sampling
+
+During final export, PanoPilot shall sample the factory equirectangular
+panorama no more than once per conventional output frame after the panorama has
+been reconstructed.
+
+**Priority:** SHOULD  
+**Verification:** Inspection, Test  
+**Trace:** UC-13
+
+
+## SYS-PERF-006 — Projection Semantic Equivalence
+
+For identical factory panorama, Camera State, Output Profile, and horizon
+rotation, the composed final projection shall map output rays to the same
+source spherical directions as the sequential horizon-then-camera mapping.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+---
+
+# 25. Performance Instrumentation Requirements — PanoPilot 0.22
+
+## SYS-PERF-007 — Export Stage Measurements
+
+During final Project export, PanoPilot shall measure elapsed wall-clock time for
+decoder wait, factory stitch, composed projection, and encoder write/wait.
+
+**Priority:** SHOULD  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+## SYS-PERF-008 — Dominant Stage Identification
+
+After successful final Project export, PanoPilot shall identify the measured
+video stage with the largest cumulative elapsed time.
+
+**Priority:** SHOULD  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+## SYS-PERF-009 — Local Performance Report
+
+When requested from the command line, PanoPilot shall write the complete export
+result and performance measurements to a local JSON file.
+
+**Priority:** SHOULD  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+---
+
+# 26. Project Durability Requirements — PanoPilot 0.22.1
+
+## SYS-PERSIST-009 — External Project Backup
+
+After a successful Project save, PanoPilot shall store a recoverable Project
+snapshot outside the source checkout.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-11, UC-12
+
+
+## SYS-PERSIST-010 — Project Backup Recovery
+
+Given an available durable Project backup, PanoPilot shall permit restoration
+to the intended Project JSON path without changing Source-Time Camera Position
+semantics.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-12
+
+
+## SYS-PERSIST-011 — Distribution/User-Data Separation
+
+The PanoPilot distributable archive shall not contain the runtime `results/`
+directory used for User Project/output artifacts.
+
+**Priority:** MUST  
+**Verification:** Inspection
+
+
+---
+
+# 27. Recovery-Aid Requirements — PanoPilot 0.22.2
+
+## SYS-PERSIST-012 — Cache Source Discovery
+
+When panoramic preview metadata is available, PanoPilot shall permit the User
+to list original Source Recording paths referenced by that metadata.
+
+**Priority:** SHOULD  
+**Verification:** Test
+
+
+## SYS-PERSIST-013 — Explicit Reconstruction Order
+
+When reconstructing a fresh Project from preview-cache sources, PanoPilot shall
+require the User to establish Clip order explicitly.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-PERSIST-014 — Recovery Authority Boundary
+
+PanoPilot shall not infer lost Clip trims or Camera Positions from preview
+metadata that does not contain those values.
+
+**Priority:** MUST  
+**Verification:** Inspection
+
+
+---
+
+# 28. CFR Boundary Refinement — PanoPilot 0.22.4
+
+## SYS-EXP-016 — Cumulative CFR Clip Boundary Quantization
+
+During final export, PanoPilot shall map each cumulative Project Clip boundary
+to the nearest Output Profile frame boundary without independently rounding
+Clip durations.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+## SYS-EXP-017 — Decoder EOF Quantization Tolerance
+
+When a requested final CFR frame lies within normal output-frame quantization
+of source EOF, PanoPilot may repeat the final decoded frame for no more than two
+Output Profile frame intervals.
+
+**Priority:** SHOULD  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+---
+
+# 29. Benchmark-Driven Optimization Requirements — PanoPilot 0.23
+
+## SYS-PERF-010 — CFR Exposure-Time Fast Path
+
+When a lens video stream's average and nominal frame rates agree within
+`1e-6` relative difference, PanoPilot shall derive source exposure times from
+the stream cadence without a frame-level FFprobe scan.
+
+**Priority:** SHOULD  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+## SYS-PERF-011 — Unknown/VFR Timing Fallback
+
+When a lens stream cannot be safely classified as CFR, PanoPilot shall preserve
+frame-level source PTS inspection for exposure-time alignment.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+## SYS-PERF-012 — Factory Blend Semantic Preservation
+
+The optimized factory seam blend shall use the same normalized per-pixel lens
+weights as the accepted factory-calibrated stitch.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+---
+
+# 30. Projection Kernel Requirements — PanoPilot 0.24
+
+## SYS-PERF-013 — Combined Camera/Horizon Transform
+
+During final composed projection, PanoPilot shall combine the frame Camera
+rotation and horizon content rotation into one 3×3 transformation before
+per-pixel ray evaluation.
+
+**Priority:** SHOULD  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+## SYS-PERF-014 — Projection Geometry Preservation
+
+The optimized final projection kernel shall map output pixels to factory
+equirectangular coordinates within 0.001 source pixel of the accepted float64
+composed-projection geometry for representative Camera and horizon rotations.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+## SYS-PERF-015 — Projection Substage Measurement
+
+During final export, PanoPilot shall separately measure composed-map generation
+and panorama-remap elapsed time.
+
+**Priority:** SHOULD  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+---
+
+# 31. Projection Seam-Wrap Requirements — PanoPilot 0.25
+
+## SYS-PERF-016 — Bounded Longitude Wrap
+
+When final-projector panorama X coordinates are derived from an `atan2`
+longitude in one spherical revolution, PanoPilot shall perform at most one
+positive or negative panorama-width correction per coordinate instead of a
+general floating-point modulo operation.
+
+**Priority:** SHOULD  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+## SYS-PERF-017 — Wrap Semantic Equivalence
+
+For the valid final-projector panorama X range, the optimized bounded wrap shall
+produce the same float32 coordinate values as modulo by panorama width.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+---
+
+# 32. Hardware Decode Requirements — PanoPilot 0.26
+
+## SYS-PERF-018 — Executable Hardware Decoder Test
+
+Before automatic selection of VAAPI, PanoPilot shall successfully execute a
+source-specific decode smoke test through the same dual-lens-to-BGR pipeline
+used by final export.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+## SYS-PERF-019 — Automatic Software Fallback
+
+When automatic VAAPI selection cannot execute the runtime smoke test, PanoPilot
+shall use software decoding for that Clip.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+## SYS-PERF-020 — Explicit VAAPI Failure
+
+When the User explicitly requires VAAPI and the runtime smoke test fails,
+PanoPilot shall fail instead of silently selecting software decoding.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+## SYS-PERF-021 — Decoder Selection Diagnostics
+
+For each rendered Clip, PanoPilot shall record selected decoder backend,
+selected VAAPI device when applicable, fallback state, and selection reason.
+
+**Priority:** SHOULD  
+**Verification:** Test  
+**Trace:** UC-13

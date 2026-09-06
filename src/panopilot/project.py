@@ -17,7 +17,10 @@ on their next explicit Save.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from hashlib import sha256
 import json
+import os
 import re
 from pathlib import Path
 from typing import Optional
@@ -36,6 +39,9 @@ CAMERA_MOTION_EASINGS = (
 )
 DEFAULT_CAMERA_MOTION_EASING = "smooth"
 DEFAULT_CAMERA_MOTION_STRENGTH = 1.0
+
+PROJECT_BACKUP_SCHEMA_VERSION = 1
+PROJECT_BACKUP_KEEP = 25
 
 
 @dataclass
@@ -557,6 +563,374 @@ def commit_camera_position_to_clip(
     }
 
 
+
+def _project_json_text(project: Project):
+    return (
+        json.dumps(
+            project.to_dict(),
+            indent=2,
+        )
+        + "\n"
+    )
+
+
+def default_project_backup_root():
+    """
+    Durable backup root outside the source checkout.
+
+    XDG_DATA_HOME is used when configured; otherwise Linux defaults to:
+      ~/.local/share/panopilot/project-backups
+    """
+    xdg = os.environ.get(
+        "XDG_DATA_HOME"
+    )
+    base = (
+        Path(xdg)
+        if xdg
+        else Path.home()
+        / ".local"
+        / "share"
+    )
+
+    return (
+        base
+        / "panopilot"
+        / "project-backups"
+    )
+
+
+def project_backup_directory(
+    project_path,
+    *,
+    backup_root=None,
+):
+    project_path = Path(
+        project_path
+    ).expanduser()
+
+    absolute = str(
+        project_path.resolve(
+            strict=False
+        )
+    )
+    key = sha256(
+        absolute.encode(
+            "utf-8"
+        )
+    ).hexdigest()[:12]
+
+    safe_name = re.sub(
+        r"[^A-Za-z0-9._-]+",
+        "_",
+        project_path.stem
+        or "project",
+    )
+
+    root = (
+        Path(backup_root)
+        if backup_root is not None
+        else default_project_backup_root()
+    )
+
+    return (
+        root
+        / f"{safe_name}-{key}"
+    )
+
+
+def _atomic_text_write(
+    path,
+    text,
+):
+    path = Path(path)
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    temporary = path.with_name(
+        path.name
+        + ".tmp"
+    )
+    temporary.write_text(
+        text,
+        encoding="utf-8",
+    )
+    temporary.replace(
+        path
+    )
+
+
+def _prune_project_backups(
+    backup_dir,
+    *,
+    keep=PROJECT_BACKUP_KEEP,
+):
+    backup_dir = Path(
+        backup_dir
+    )
+    keep = max(
+        1,
+        int(keep),
+    )
+
+    snapshots = sorted(
+        (
+            path
+            for path in backup_dir.glob(
+                "*.json"
+            )
+            if path.name
+            != "latest.json"
+        ),
+        key=lambda path: (
+            path.stat().st_mtime_ns
+        ),
+        reverse=True,
+    )
+
+    for path in snapshots[
+        keep:
+    ]:
+        path.unlink(
+            missing_ok=True
+        )
+
+
+def backup_project_snapshot(
+    project: Project,
+    project_path,
+    *,
+    backup_root=None,
+    now=None,
+):
+    """
+    Store a durable Project snapshot outside the working checkout.
+
+    Every successful project save updates:
+      latest.json
+    and also writes a timestamped history snapshot.
+    """
+    project_path = Path(
+        project_path
+    )
+    backup_dir = (
+        project_backup_directory(
+            project_path,
+            backup_root=backup_root,
+        )
+    )
+    backup_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    current_time = (
+        now
+        if now is not None
+        else datetime.now(
+            timezone.utc
+        )
+    )
+
+    if current_time.tzinfo is None:
+        current_time = (
+            current_time.replace(
+                tzinfo=timezone.utc
+            )
+        )
+
+    timestamp = (
+        current_time.astimezone(
+            timezone.utc
+        ).strftime(
+            "%Y%m%dT%H%M%S.%fZ"
+        )
+    )
+
+    text = _project_json_text(
+        project
+    )
+
+    snapshot = (
+        backup_dir
+        / f"{timestamp}.json"
+    )
+    latest = (
+        backup_dir
+        / "latest.json"
+    )
+
+    _atomic_text_write(
+        snapshot,
+        text,
+    )
+    _atomic_text_write(
+        latest,
+        text,
+    )
+
+    metadata = {
+        "backup_schema_version": (
+            PROJECT_BACKUP_SCHEMA_VERSION
+        ),
+        "project_path": str(
+            project_path.expanduser().resolve(
+                strict=False
+            )
+        ),
+        "latest_snapshot": str(
+            snapshot
+        ),
+        "saved_at_utc": timestamp,
+    }
+
+    _atomic_text_write(
+        backup_dir
+        / "metadata.json",
+        json.dumps(
+            metadata,
+            indent=2,
+        )
+        + "\n",
+    )
+
+    _prune_project_backups(
+        backup_dir
+    )
+
+    return snapshot
+
+
+def list_project_backups(
+    project_path,
+    *,
+    backup_root=None,
+):
+    backup_dir = (
+        project_backup_directory(
+            project_path,
+            backup_root=backup_root,
+        )
+    )
+
+    if not backup_dir.is_dir():
+        return []
+
+    return sorted(
+        (
+            path
+            for path in backup_dir.glob(
+                "*.json"
+            )
+            if path.name not in (
+                "latest.json",
+                "metadata.json",
+            )
+        ),
+        key=lambda path: (
+            path.stat().st_mtime_ns
+        ),
+        reverse=True,
+    )
+
+
+def latest_project_backup(
+    project_path,
+    *,
+    backup_root=None,
+):
+    backup_dir = (
+        project_backup_directory(
+            project_path,
+            backup_root=backup_root,
+        )
+    )
+    latest = (
+        backup_dir
+        / "latest.json"
+    )
+
+    if latest.is_file():
+        return latest
+
+    backups = list_project_backups(
+        project_path,
+        backup_root=backup_root,
+    )
+
+    return (
+        backups[0]
+        if backups
+        else None
+    )
+
+
+def recover_project_backup(
+    project_path,
+    *,
+    backup=None,
+    backup_root=None,
+):
+    project_path = Path(
+        project_path
+    ).expanduser()
+
+    selected = (
+        Path(backup)
+        if backup is not None
+        else latest_project_backup(
+            project_path,
+            backup_root=backup_root,
+        )
+    )
+
+    if (
+        selected is None
+        or not selected.is_file()
+    ):
+        raise FileNotFoundError(
+            "No PanoPilot project backup is available for "
+            f"{project_path}"
+        )
+
+    # Validate before restoring.
+    recovered = Project.from_dict(
+        json.loads(
+            selected.read_text(
+                encoding="utf-8"
+            )
+        )
+    )
+
+    text = _project_json_text(
+        recovered
+    )
+    _atomic_text_write(
+        project_path,
+        text,
+    )
+
+    # Re-establish a current external snapshot after recovery.
+    backup_project_snapshot(
+        recovered,
+        project_path,
+        backup_root=backup_root,
+    )
+
+    return {
+        "project_path": str(
+            project_path
+        ),
+        "backup": str(
+            selected
+        ),
+        "clip_count": len(
+            recovered.clips
+        ),
+    }
+
+
 def load_project(path, *, default_aspect="16:9"):
     path = Path(path)
     if not path.exists():
@@ -564,15 +938,33 @@ def load_project(path, *, default_aspect="16:9"):
     return Project.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
 
-def save_project(project: Project, path):
+def save_project(
+    project: Project,
+    path,
+    *,
+    create_backup=True,
+    backup_root=None,
+):
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(
-        json.dumps(project.to_dict(), indent=2) + "\n",
-        encoding="utf-8",
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
     )
-    temporary.replace(path)
+
+    _atomic_text_write(
+        path,
+        _project_json_text(
+            project
+        ),
+    )
+
+    if create_backup:
+        backup_project_snapshot(
+            project,
+            path,
+            backup_root=backup_root,
+        )
+
     return path
 
 

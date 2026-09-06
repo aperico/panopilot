@@ -1,7 +1,7 @@
 # PanoPilot — Functional Architecture
 
 Status: Draft  
-Baseline: FA-0.4  
+Baseline: FA-0.11
 Scope: Iteration 1  
 Parent: `01_system_definition.md`  
 Use Cases: `02_use_cases.md`  
@@ -1567,3 +1567,225 @@ factory stitch
 A later optimization may combine attitude and Virtual Camera projection into a
 single final source-to-output remap. Such optimization shall not change the
 canonical Camera Model or View Path semantics.
+
+
+---
+
+# 41. Composed Final Projection — PanoPilot 0.21
+
+The final renderer now realizes the earlier optimization opportunity from
+Section 40.6.
+
+For a Virtual Camera ray `r`, Camera rotation `C`, and horizon content rotation
+`H`, the optimized inverse mapping is evaluated directly as:
+
+```text
+leveled_direction = r · Cᵀ
+source_direction  = leveled_direction · H
+```
+
+where row-vector notation is used.
+
+The resulting source direction is converted directly to equirectangular sample
+coordinates.
+
+This is equivalent to:
+
+```text
+rotate_equirectangular(factory_panorama, H)
+then
+reframe_equirectangular(rotated_panorama, camera)
+```
+
+but avoids materializing and bilinearly sampling the intermediate rotated
+panorama.
+
+## 41.1 Reusable Projector
+
+`RectilinearProjector` owns:
+
+- factory-panorama dimensions;
+- Output Profile dimensions;
+- cached normalized output pixel-center X coordinates;
+- cached normalized output pixel-center Y coordinates.
+
+FOV, yaw, pitch, and horizon rotation remain frame-dependent.
+
+## 41.2 Quality Effect
+
+Removing the intermediate horizon image resample also removes one interpolation
+stage from the final image path. The optimization is therefore expected to
+improve both render throughput and sharpness relative to the 0.20
+correctness-first pipeline.
+
+Measured performance on representative user media remains a user-validation
+activity rather than an architectural assumption.
+
+
+---
+
+# 42. Export Performance Observation — PanoPilot 0.22
+
+Performance instrumentation is placed at existing functional boundaries rather
+than inside domain semantics.
+
+```text
+Project Export Coordinator
+    ↓
+StageProfiler
+    ├─ source/Clip setup
+    ├─ decode wait
+    ├─ factory stitch
+    ├─ horizon math
+    ├─ View Path evaluation
+    ├─ composed projection
+    ├─ encode wait
+    ├─ audio assembly
+    ├─ mux
+    └─ verification
+```
+
+`StageProfiler` has no authority over Project state, Camera state, rendering
+decisions, or media content.
+
+The next performance change shall be selected from representative measurements,
+not from presumed bottlenecks.
+
+
+---
+
+# 43. Project Persistence Boundary — PanoPilot 0.22.1
+
+Project persistence now has two storage boundaries:
+
+```text
+requested Project path
+    ↓ atomic save
+
+external XDG Project backup
+    ↓ latest snapshot + retained history
+```
+
+The backup subsystem depends only on serialized Project state. It does not own
+Source Recordings, preview caches, or rendered outputs.
+
+Distribution examples are separated from runtime user data under `examples/`.
+
+
+---
+
+# 44. Export Hotspot Optimization — PanoPilot 0.23
+
+## 44.1 Source Exposure Timing
+
+```text
+existing source probe
+    ↓
+avg_frame_rate == r_frame_rate ?
+    ├─ yes → analytical CFR exposure grid
+    └─ no  → FFprobe frame PTS fallback
+```
+
+This keeps timing resolution within the Source subsystem and avoids a second
+expensive media traversal for the accepted DJI CFR case.
+
+## 44.2 Factory Blend
+
+```text
+lens 0 calibrated remap ─┐
+                          ├─ OpenCV blendLinear → factory panorama
+lens 1 calibrated remap ─┘
+                 normalized existing seam weights
+```
+
+Map construction, fisheye projection, and overlap-weight semantics remain
+unchanged.
+
+The complete-panorama architecture remains in place for 0.23. A direct
+lens-to-delivery-frame projection is intentionally deferred until the new
+benchmark determines the remaining dominant cost.
+
+
+---
+
+# 45. Analytical Composed Projector — PanoPilot 0.24
+
+```text
+cached NDC axes + FOV
+        ↓
+unnormalized Camera ray components
+        ↓
+combined Camera/horizon 3×3 transform
+        ↓
+source X/Y/Z components
+        ↓
+longitude / latitude
+        ↓
+float32 equirectangular map
+        ↓
+OpenCV remap
+```
+
+The projector no longer materializes a normalized `height × width × 3` ray
+tensor.
+
+The projection stage now owns a secondary performance observer:
+
+```text
+map_generation
+panorama_remap
+```
+
+This observer does not affect rendering authority and exists only to select the
+next optimization from measured evidence.
+
+
+---
+
+# 46. Bounded Equirectangular X Wrap — PanoPilot 0.25
+
+Final composed projection now uses the invariant:
+
+```text
+longitude ∈ [-π, +π]
+```
+
+which implies one-period panorama coordinates.
+
+The X-map finishing path is:
+
+```text
+longitude
+    ↓ scale + offset
+approximately [-0.5, W-0.5]
+    ↓
+x < 0  → x += W
+x >= W → x -= W
+```
+
+This replaces general floating-point remainder without changing the produced
+sampling map.
+
+
+---
+
+# 47. Runtime Decoder Backend Selection — PanoPilot 0.26
+
+```text
+Clip source
+    ↓
+Decoder Selector
+    ├─ software requested → software
+    └─ auto / VAAPI
+           ↓
+       VAAPI render-node candidates
+           ↓
+       exact source-specific smoke test
+           ├─ pass → VAAPI
+           └─ fail
+                ├─ auto  → software
+                └─ VAAPI → fail export
+```
+
+Both backends expose the same software BGR lens-frame boundary to factory
+stitching. No hardware frame object crosses into Project rendering semantics.

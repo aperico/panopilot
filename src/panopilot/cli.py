@@ -1,5 +1,6 @@
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import cv2
@@ -15,11 +16,23 @@ from .factory import FactoryCalibratedMapper, load_calibration
 from .pipeline import stitch_osv_frame
 from .preview import render_preview
 from .path_render import render_project_view_at
-from .project import load_project, resolve_project_clip
+from .project import (
+    latest_project_backup,
+    list_project_backups,
+    load_project,
+    recover_project_backup,
+    resolve_project_clip,
+)
 from .project_editor import run_project_editor
 from .project_player import run_project_preview
 from .project_export import export_project_video
 from .loading import run_with_loading_screen
+from .performance import format_performance_summary
+from .cache import discover_cached_sources
+from .recovery import (
+    parse_candidate_indexes,
+    rebuild_project_from_cache,
+)
 from .reframe import reframe_osv_frame
 from .sweep import render_imu_offset_sweep
 from .source import audio_streams, lens_streams, probe_source
@@ -320,6 +333,31 @@ def _cmd_prepare_preview(args):
 
 
 def _cmd_project_edit(args):
+    project_path = Path(
+        args.project
+    )
+
+    if not project_path.exists():
+        backup = latest_project_backup(
+            project_path
+        )
+
+        if backup is not None:
+            print(
+                "Project file is missing, but a durable PanoPilot backup exists:"
+            )
+            print(
+                f"  {backup}"
+            )
+            print(
+                "Recover it with:"
+            )
+            print(
+                "  panopilot project-recover "
+                f"{args.project}"
+            )
+            print()
+
     pending_sources = list(
         args.sources
     )
@@ -373,6 +411,14 @@ def _cmd_project_edit(args):
                 "Project export complete | "
                 f"{result['output']} | "
                 f"{result['encoded_duration']:.3f}s"
+            )
+            print(
+                format_performance_summary(
+                    result.get(
+                        "performance",
+                        {}
+                    )
+                )
             )
             continue
 
@@ -482,12 +528,46 @@ def _cmd_project_export(args):
         ),
         crf=args.crf,
         preset=args.preset,
+        decoder=args.decoder,
+        vaapi_device=(
+            args.vaapi_device
+        ),
         progress_callback=progress,
     )
 
     print(
         f"Wrote: {result['output']}"
     )
+    print()
+    print(
+        format_performance_summary(
+            result.get(
+                "performance",
+                {}
+            )
+        )
+    )
+
+    if args.report:
+        report_path = Path(
+            args.report
+        )
+        report_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        report_path.write_text(
+            json.dumps(
+                result,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        print(
+            f"Performance report: {report_path}"
+        )
+
     print(
         json.dumps(
             result,
@@ -506,6 +586,184 @@ def _cmd_project_preview(args):
         audio_enabled=not args.no_playback_audio,
     )
 
+    print(
+        json.dumps(
+            result,
+            indent=2,
+        )
+    )
+
+
+
+
+
+def _print_cached_source_candidates(
+    candidates,
+):
+    if not candidates:
+        print(
+            "No PanoPilot preview-cache source recordings found."
+        )
+        return
+
+    print(
+        "Recoverable source recordings from preview cache:"
+    )
+
+    for index, candidate in enumerate(
+        candidates,
+        start=1,
+    ):
+        duration = (
+            f"{candidate.source_duration:.3f}s"
+            if candidate.source_duration is not None
+            else "duration unknown"
+        )
+        status = (
+            "OK"
+            if candidate.exists
+            else "MISSING"
+        )
+
+        print(
+            f"{index:02d}  [{status}]  "
+            f"{duration:>16}  "
+            f"{candidate.source}"
+        )
+
+
+def _cmd_cache_sources(args):
+    candidates = discover_cached_sources(
+        cache_dir=args.cache_dir,
+        existing_only=(
+            args.existing_only
+        ),
+    )
+
+    _print_cached_source_candidates(
+        candidates
+    )
+
+
+def _cmd_project_rebuild_from_cache(
+    args,
+):
+    candidates = discover_cached_sources(
+        cache_dir=args.cache_dir,
+        existing_only=True,
+    )
+
+    if not candidates:
+        raise RuntimeError(
+            "No existing source recordings were found in the "
+            "PanoPilot preview cache."
+        )
+
+    _print_cached_source_candidates(
+        candidates
+    )
+    print()
+    print(
+        "Preview cache can recover source paths only; "
+        "prior trims and Camera Positions must be recreated."
+    )
+
+    selection = args.indexes
+
+    if selection is None:
+        if not sys.stdin.isatty():
+            raise RuntimeError(
+                "Use --indexes with source numbers in the desired Clip order."
+            )
+
+        print()
+        selection = input(
+            "Enter source numbers in desired Clip order "
+            "(example: 2,1): "
+        ).strip()
+
+    indexes = parse_candidate_indexes(
+        selection,
+        candidate_count=len(
+            candidates
+        ),
+    )
+
+    result = rebuild_project_from_cache(
+        args.project,
+        indexes=indexes,
+        cache_dir=args.cache_dir,
+        output_aspect=args.aspect,
+        camera_motion_easing=(
+            args.camera_motion
+        ),
+        camera_motion_strength=(
+            args.motion_amount
+            / 100.0
+        ),
+    )
+
+    print()
+    print(
+        "Fresh Project created:"
+    )
+    print(
+        json.dumps(
+            result,
+            indent=2,
+        )
+    )
+    print()
+    print(
+        "Next:"
+    )
+    print(
+        "  panopilot project-edit "
+        f"--project {args.project}"
+    )
+
+
+
+def _cmd_project_backups(args):
+    backups = list_project_backups(
+        args.project
+    )
+    latest = latest_project_backup(
+        args.project
+    )
+
+    print(
+        f"Project: {args.project}"
+    )
+
+    if latest is None:
+        print(
+            "No durable PanoPilot backups found."
+        )
+        return
+
+    print(
+        f"Latest: {latest}"
+    )
+
+    for index, backup in enumerate(
+        backups,
+        start=1,
+    ):
+        print(
+            f"{index:02d}  {backup}"
+        )
+
+
+def _cmd_project_recover(args):
+    result = recover_project_backup(
+        args.project,
+        backup=args.backup,
+    )
+
+    print(
+        "Recovered Project:"
+    )
     print(
         json.dumps(
             result,
@@ -623,6 +881,95 @@ def build_parser():
 
     sub = parser.add_subparsers(dest="command", required=True)
 
+    cache_sources = sub.add_parser(
+        "cache-sources",
+        help="List source recordings recoverable from panoramic preview cache",
+    )
+    cache_sources.add_argument(
+        "--cache-dir",
+        default=None,
+    )
+    cache_sources.add_argument(
+        "--existing-only",
+        action="store_true",
+        help="Hide cached source paths that no longer exist",
+    )
+    cache_sources.set_defaults(
+        func=_cmd_cache_sources
+    )
+
+    rebuild_cache = sub.add_parser(
+        "project-rebuild-from-cache",
+        help="Create a fresh Project shell from selected preview-cache sources",
+    )
+    rebuild_cache.add_argument(
+        "project",
+        help="New Project JSON path to create",
+    )
+    rebuild_cache.add_argument(
+        "--indexes",
+        default=None,
+        help="1-based source numbers in desired Clip order, e.g. 2,1",
+    )
+    rebuild_cache.add_argument(
+        "--cache-dir",
+        default=None,
+    )
+    rebuild_cache.add_argument(
+        "--aspect",
+        choices=("16:9", "9:16"),
+        default="16:9",
+    )
+    rebuild_cache.add_argument(
+        "--camera-motion",
+        choices=(
+            "smooth",
+            "ease-in-out",
+            "ease-in",
+            "ease-out",
+            "linear",
+        ),
+        default="smooth",
+    )
+    rebuild_cache.add_argument(
+        "--motion-amount",
+        type=float,
+        default=100.0,
+        help="Camera Motion Amount percentage (0..100)",
+    )
+    rebuild_cache.set_defaults(
+        func=_cmd_project_rebuild_from_cache
+    )
+
+    project_backups = sub.add_parser(
+        "project-backups",
+        help="List durable backups for a PanoPilot project path",
+    )
+    project_backups.add_argument(
+        "project",
+        help="Original/intended PanoPilot project JSON path",
+    )
+    project_backups.set_defaults(
+        func=_cmd_project_backups
+    )
+
+    project_recover = sub.add_parser(
+        "project-recover",
+        help="Restore a missing/damaged Project from its durable backup",
+    )
+    project_recover.add_argument(
+        "project",
+        help="Project JSON path to restore",
+    )
+    project_recover.add_argument(
+        "--backup",
+        default=None,
+        help="Optional specific backup JSON; default is latest",
+    )
+    project_recover.set_defaults(
+        func=_cmd_project_recover
+    )
+
     project_info = sub.add_parser(
         "project-info",
         help="Show the current prototype project and committed Camera Positions",
@@ -735,6 +1082,32 @@ def build_parser():
         "--preset",
         default="medium",
         help="libx264 preset (default: medium)",
+    )
+    project_export.add_argument(
+        "--decoder",
+        choices=(
+            "auto",
+            "software",
+            "vaapi",
+        ),
+        default="auto",
+        help=(
+            "Lens decoder backend; auto runtime-tests VAAPI and falls back "
+            "to software (default: auto)"
+        ),
+    )
+    project_export.add_argument(
+        "--vaapi-device",
+        default=None,
+        help=(
+            "Optional VAAPI device, e.g. /dev/dri/renderD128; "
+            "auto discovers render nodes when omitted"
+        ),
+    )
+    project_export.add_argument(
+        "--report",
+        default=None,
+        help="Optional JSON path for the complete export/performance report",
     )
     project_export.set_defaults(
         func=_cmd_project_export

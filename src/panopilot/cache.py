@@ -87,6 +87,187 @@ class PreviewCacheEntry:
         }
 
 
+
+@dataclass(frozen=True)
+class CachedSourceCandidate:
+    source: Path
+    source_duration: Optional[float]
+    cache_key: str
+    metadata_path: Path
+    metadata_mtime_ns: int
+    source_size: Optional[int]
+    source_mtime_ns: Optional[int]
+    exists: bool
+
+    def to_dict(self):
+        return {
+            "source": str(self.source),
+            "source_duration": (
+                float(self.source_duration)
+                if self.source_duration is not None
+                else None
+            ),
+            "cache_key": self.cache_key,
+            "metadata_path": str(
+                self.metadata_path
+            ),
+            "metadata_mtime_ns": int(
+                self.metadata_mtime_ns
+            ),
+            "source_size": (
+                int(self.source_size)
+                if self.source_size is not None
+                else None
+            ),
+            "source_mtime_ns": (
+                int(self.source_mtime_ns)
+                if self.source_mtime_ns is not None
+                else None
+            ),
+            "exists": bool(
+                self.exists
+            ),
+        }
+
+
+def discover_cached_sources(
+    *,
+    cache_dir=None,
+    existing_only=False,
+):
+    """
+    Recover source-recording references from disposable preview metadata.
+
+    This can reconstruct source membership after a Project JSON is lost, but
+    cannot reconstruct Clip order, trims, Camera Positions, or Camera Motion
+    edits that were stored only in the Project.
+    """
+    root = (
+        Path(cache_dir)
+        if cache_dir is not None
+        else default_cache_dir()
+    )
+
+    if not root.is_dir():
+        return []
+
+    by_source = {}
+
+    for metadata_path in root.glob(
+        "*/metadata.json"
+    ):
+        metadata = _read_metadata(
+            metadata_path
+        )
+
+        if not metadata:
+            continue
+
+        identity = metadata.get(
+            "source_identity"
+        ) or {}
+        raw_source = identity.get(
+            "path"
+        )
+
+        if not raw_source:
+            continue
+
+        source = Path(
+            raw_source
+        ).expanduser()
+        exists = source.is_file()
+
+        if (
+            existing_only
+            and not exists
+        ):
+            continue
+
+        duration = metadata.get(
+            "source_duration"
+        )
+
+        try:
+            duration = (
+                float(duration)
+                if duration is not None
+                else None
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            duration = None
+
+        try:
+            metadata_mtime_ns = int(
+                metadata_path.stat().st_mtime_ns
+            )
+        except OSError:
+            metadata_mtime_ns = 0
+
+        candidate = CachedSourceCandidate(
+            source=source,
+            source_duration=duration,
+            cache_key=str(
+                metadata.get(
+                    "cache_key",
+                    metadata_path.parent.name,
+                )
+            ),
+            metadata_path=metadata_path,
+            metadata_mtime_ns=(
+                metadata_mtime_ns
+            ),
+            source_size=(
+                int(
+                    identity["size"]
+                )
+                if identity.get(
+                    "size"
+                ) is not None
+                else None
+            ),
+            source_mtime_ns=(
+                int(
+                    identity["mtime_ns"]
+                )
+                if identity.get(
+                    "mtime_ns"
+                ) is not None
+                else None
+            ),
+            exists=exists,
+        )
+
+        key = str(
+            source.resolve(
+                strict=False
+            )
+        )
+        previous = by_source.get(
+            key
+        )
+
+        # Keep the newest metadata instance for the same source path/profile
+        # family. The user still chooses Clip order explicitly.
+        if (
+            previous is None
+            or candidate.metadata_mtime_ns
+            > previous.metadata_mtime_ns
+        ):
+            by_source[key] = candidate
+
+    return sorted(
+        by_source.values(),
+        key=lambda item: (
+            item.source.name.lower(),
+            str(item.source).lower(),
+        ),
+    )
+
+
 def default_cache_dir():
     xdg = os.environ.get("XDG_CACHE_HOME")
     base = Path(xdg) if xdg else Path.home() / ".cache"

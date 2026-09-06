@@ -1,0 +1,12 @@
+{
+  "source_time": 1.7,
+  "mode": "interpolate",
+  "left_time": 0.8,
+  "right_time": 2.6,
+  "alpha": 0.49999999999999994,
+  "camera": {
+    "yaw_deg": -180.0,
+    "pitch_deg": 0.9999999999999991,
+    "fov_deg": 72.5
+  }
+}

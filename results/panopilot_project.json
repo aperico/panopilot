@@ -15,23 +15,38 @@
         "in_source_time": 0.0,
         "out_source_time": null
       },
+      "camera_positions": []
+    },
+    {
+      "id": "clip-2",
+      "source": "/home/aperico/Videos/osmo/CAM_20260829102703_0003_D.OSV",
+      "trim": {
+        "in_source_time": 0.0,
+        "out_source_time": null
+      },
       "camera_positions": [
         {
-          "source_time": 0.35,
-          "yaw_deg": 78.74208984375025,
-          "pitch_deg": -4.1308593750000036,
-          "fov_deg": 90.0
-        },
-        {
-          "source_time": 2.55,
-          "yaw_deg": -77.68696289062483,
-          "pitch_deg": -13.666406250000032,
+          "source_time": 1.35,
+          "yaw_deg": 99.65112304687489,
+          "pitch_deg": 24.916259765624993,
           "fov_deg": 120.0
         },
         {
-          "source_time": 4.4,
-          "yaw_deg": 133.9864746093752,
-          "pitch_deg": -13.060546875000043,
+          "source_time": 4.2,
+          "yaw_deg": 99.65112304687489,
+          "pitch_deg": 24.916259765624993,
+          "fov_deg": 120.0
+        },
+        {
+          "source_time": 6.25,
+          "yaw_deg": -78.39477539062517,
+          "pitch_deg": -29.193896484375,
+          "fov_deg": 120.0
+        },
+        {
+          "source_time": 8.1,
+          "yaw_deg": 85.91616210937468,
+          "pitch_deg": 25.13774414062501,
           "fov_deg": 120.0
         }
       ]

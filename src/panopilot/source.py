@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from fractions import Fraction
 import json
+import math
 import subprocess
 
 import cv2
@@ -138,25 +140,291 @@ def decode_lens_pair(path, source_time=0.0, probe=None):
     return frame0, frame1, lenses
 
 
-def source_frame_times(path, stream_index, start, duration):
-    """
-    Return actual source-frame PTS values (seconds) for a small interval.
+def _parse_frame_rate(value):
+    if value in (
+        None,
+        "",
+        "0/0",
+        "N/A",
+    ):
+        return None
 
-    This is used to align horizon correction to the exposure time of the frame
-    that the preview cadence is expected to select.
+    try:
+        rate = float(
+            Fraction(
+                str(value)
+            )
+        )
+    except (
+        ValueError,
+        ZeroDivisionError,
+    ):
+        return None
+
+    if (
+        not math.isfinite(
+            rate
+        )
+        or rate <= 0.0
+    ):
+        return None
+
+    return rate
+
+
+def _stream_for_index(
+    probe,
+    stream_index,
+):
+    if not probe:
+        return None
+
+    target = int(
+        stream_index
+    )
+
+    for stream in probe.get(
+        "streams",
+        [],
+    ):
+        try:
+            index = int(
+                stream.get(
+                    "index"
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            continue
+
+        if index == target:
+            return stream
+
+    return None
+
+
+def _cfr_stream_rate(
+    probe,
+    stream_index,
+):
     """
-    interval_start = max(0.0, float(start) - 0.1)
-    interval_duration = max(0.2, float(duration) + 0.2)
+    Return a safely detected constant frame rate from already available
+    stream metadata.
+
+    For DJI OSV lens streams, avg_frame_rate and r_frame_rate agree. Requiring
+    that agreement avoids silently treating a known VFR stream as CFR.
+    """
+    stream = _stream_for_index(
+        probe,
+        stream_index,
+    )
+
+    if stream is None:
+        return None
+
+    average = _parse_frame_rate(
+        stream.get(
+            "avg_frame_rate"
+        )
+    )
+    nominal = _parse_frame_rate(
+        stream.get(
+            "r_frame_rate"
+        )
+    )
+
+    if (
+        average is None
+        or nominal is None
+    ):
+        return None
+
+    relative_difference = abs(
+        average - nominal
+    ) / max(
+        average,
+        nominal,
+    )
+
+    if relative_difference > 1e-6:
+        return None
+
+    return (
+        0.5
+        * (
+            average
+            + nominal
+        )
+    )
+
+
+def _cfr_source_frame_times(
+    probe,
+    stream_index,
+    start,
+    duration,
+):
+    """
+    Generate the source exposure-time grid analytically for a safely detected
+    CFR stream.
+
+    This is equivalent to enumerating frame PTS for a regular source cadence,
+    but avoids a second FFprobe operation that can be very expensive for HEVC.
+    """
+    fps = _cfr_stream_rate(
+        probe,
+        stream_index,
+    )
+
+    if fps is None:
+        return None
+
+    stream = _stream_for_index(
+        probe,
+        stream_index,
+    )
+
+    try:
+        stream_start = float(
+            stream.get(
+                "start_time",
+                0.0,
+            )
+            or 0.0
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        stream_start = 0.0
+
+    interval_start = max(
+        stream_start,
+        float(start) - 0.1,
+    )
+    interval_end = (
+        float(start)
+        + float(duration)
+        + 0.1
+    )
+
+    # Small epsilon protects exact frame-boundary values against binary float
+    # representation moving ceil/floor to the adjacent integer.
+    epsilon = 1e-9
+    first_index = max(
+        0,
+        int(
+            math.ceil(
+                (
+                    interval_start
+                    - stream_start
+                )
+                * fps
+                - epsilon
+            )
+        ),
+    )
+    last_index = int(
+        math.floor(
+            (
+                interval_end
+                - stream_start
+            )
+            * fps
+            + epsilon
+        )
+    )
+
+    if last_index < first_index:
+        return []
+
+    return [
+        stream_start
+        + frame_index
+        / fps
+        for frame_index in range(
+            first_index,
+            last_index + 1,
+        )
+    ]
+
+
+def source_frame_times(
+    path,
+    stream_index,
+    start,
+    duration,
+    *,
+    probe=None,
+    return_diagnostics=False,
+):
+    """
+    Return source-frame exposure times for a small interval.
+
+    Fast path:
+      safely detected CFR cadence from the already available source probe.
+
+    Fallback:
+      per-frame FFprobe PTS inspection for sources that cannot safely be
+      classified as CFR.
+
+    The fallback preserves the previous behavior for non-DJI/VFR media.
+    """
+    analytical = _cfr_source_frame_times(
+        probe,
+        stream_index,
+        start,
+        duration,
+    )
+
+    if analytical is not None:
+        diagnostics = {
+            "method": (
+                "cfr-stream-metadata"
+            ),
+            "frame_rate": (
+                _cfr_stream_rate(
+                    probe,
+                    stream_index,
+                )
+            ),
+            "ffprobe_frame_scan": False,
+        }
+
+        if return_diagnostics:
+            return (
+                analytical,
+                diagnostics,
+            )
+
+        return analytical
+
+    interval_start = max(
+        0.0,
+        float(start) - 0.1,
+    )
+    interval_duration = max(
+        0.2,
+        float(duration) + 0.2,
+    )
 
     cmd = [
         "ffprobe",
         "-v", "error",
         "-read_intervals",
         f"{interval_start}%+{interval_duration}",
-        "-select_streams", str(int(stream_index)),
+        "-select_streams",
+        str(
+            int(
+                stream_index
+            )
+        ),
         "-show_entries",
         "frame=best_effort_timestamp_time",
-        "-of", "json",
+        "-of",
+        "json",
         str(path),
     ]
 
@@ -167,26 +435,68 @@ def source_frame_times(path, stream_index, start, duration):
             capture_output=True,
             text=True,
         )
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        return []
+    except (
+        FileNotFoundError,
+        subprocess.CalledProcessError,
+    ):
+        times = []
+    else:
+        payload = json.loads(
+            result.stdout
+        )
+        times = []
 
-    payload = json.loads(result.stdout)
-    times = []
+        for frame in payload.get(
+            "frames",
+            [],
+        ):
+            value = frame.get(
+                "best_effort_timestamp_time"
+            )
 
-    for frame in payload.get("frames", []):
-        value = frame.get("best_effort_timestamp_time")
-        if value is None:
-            continue
+            if value is None:
+                continue
 
-        try:
-            t = float(value)
-        except (TypeError, ValueError):
-            continue
+            try:
+                t = float(
+                    value
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                continue
 
-        if start - 0.1 <= t <= start + duration + 0.1:
-            times.append(t)
+            if (
+                start - 0.1
+                <= t
+                <= start
+                + duration
+                + 0.1
+            ):
+                times.append(
+                    t
+                )
 
-    return sorted(times)
+        times = sorted(
+            times
+        )
+
+    diagnostics = {
+        "method": (
+            "ffprobe-frame-scan"
+        ),
+        "frame_rate": None,
+        "ffprobe_frame_scan": True,
+    }
+
+    if return_diagnostics:
+        return (
+            times,
+            diagnostics,
+        )
+
+    return times
 
 
 def preview_exposure_times(

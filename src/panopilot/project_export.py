@@ -25,17 +25,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import glob
 import shutil
 import subprocess
 import tempfile
 import time
 
+import cv2
 import numpy as np
 
 from .attitude import (
     gravity_equirectangular,
     horizon_correction_from_gravity,
-    rotate_equirectangular,
     smooth_unit_vectors_centered,
 )
 from .dji import (
@@ -45,6 +46,10 @@ from .dji import (
 )
 from .factory import FactoryCalibratedMapper
 from .output_profile import output_profile_for_project
+from .performance import (
+    StageProfiler,
+    dominant_stage,
+)
 from .project import load_project
 from .source import (
     audio_streams,
@@ -57,7 +62,7 @@ from .timeline import (
     build_project_timeline,
     timeline_time_to_source,
 )
-from .virtual_camera import reframe_equirectangular
+from .virtual_camera import RectilinearProjector
 from .view_path import evaluate_clip_view_path
 
 
@@ -99,6 +104,84 @@ class ExportFrameGroup:
         }
 
 
+
+@dataclass(frozen=True)
+class DecoderSelection:
+    requested: str
+    backend: str
+    vaapi_device: str | None
+    smoke_tested: bool
+    fallback: bool
+    reason: str
+
+    def to_dict(self):
+        return {
+            "requested": self.requested,
+            "backend": self.backend,
+            "vaapi_device": self.vaapi_device,
+            "smoke_tested": bool(
+                self.smoke_tested
+            ),
+            "fallback": bool(
+                self.fallback
+            ),
+            "reason": self.reason,
+        }
+
+
+def _candidate_vaapi_devices(
+    preferred=None,
+):
+    if preferred:
+        return [
+            str(
+                Path(
+                    preferred
+                )
+            )
+        ]
+
+    return sorted(
+        str(
+            Path(path)
+        )
+        for path in glob.glob(
+            "/dev/dri/renderD*"
+        )
+    )
+
+
+def _decoder_hwaccel_args(
+    backend,
+    vaapi_device=None,
+):
+    backend = str(
+        backend
+    )
+
+    if backend == "software":
+        return []
+
+    if backend == "vaapi":
+        if not vaapi_device:
+            raise ValueError(
+                "VAAPI decoder requires a device path"
+            )
+
+        return [
+            "-hwaccel",
+            "vaapi",
+            "-hwaccel_device",
+            str(
+                vaapi_device
+            ),
+        ]
+
+    raise ValueError(
+        "decoder backend must be 'software' or 'vaapi'"
+    )
+
+
 def _emit(progress_callback, stage, message, **extra):
     if progress_callback is None:
         return
@@ -138,16 +221,41 @@ def _lens_decoder_command(
     fps,
     start,
     frame_count,
+    decoder_backend="software",
+    vaapi_device=None,
 ):
+    # Final CFR allocation can legitimately request the nearest output frame
+    # at a source EOF boundary. FFmpeg's fps filter may otherwise stop one
+    # frame short depending on source duration/time-base rounding. Clone only
+    # a very small tail (two output frames) so CFR quantization is robust while
+    # still exposing larger/truncated decode failures.
+    tail_pad_seconds = (
+        2.0
+        / max(
+            1.0,
+            float(fps),
+        )
+    )
+
     filter_graph = (
-        f"[0:{int(stream0)}]fps={float(fps):.9f},format=bgr24[l0];"
-        f"[0:{int(stream1)}]fps={float(fps):.9f},format=bgr24[l1];"
+        f"[0:{int(stream0)}]"
+        f"fps={float(fps):.9f},"
+        f"tpad=stop_mode=clone:stop_duration={tail_pad_seconds:.9f},"
+        "format=bgr24[l0];"
+        f"[0:{int(stream1)}]"
+        f"fps={float(fps):.9f},"
+        f"tpad=stop_mode=clone:stop_duration={tail_pad_seconds:.9f},"
+        "format=bgr24[l1];"
         "[l0][l1]hstack=inputs=2[out]"
     )
 
     return [
         "ffmpeg",
         "-v", "error",
+        *_decoder_hwaccel_args(
+            decoder_backend,
+            vaapi_device,
+        ),
         "-ss", f"{float(start):.9f}",
         "-i", str(source),
         "-filter_complex", filter_graph,
@@ -157,6 +265,198 @@ def _lens_decoder_command(
         "-f", "rawvideo",
         "pipe:1",
     ]
+
+
+
+def _smoke_test_lens_decoder(
+    source,
+    stream0,
+    stream1,
+    source_width,
+    source_height,
+    *,
+    fps,
+    start,
+    backend,
+    vaapi_device=None,
+    timeout_s=20.0,
+):
+    """
+    Execute the exact dual-lens-to-BGR path for one frame.
+
+    Hardware acceleration is accepted only if the real source, device,
+    dual-stream decode, software-frame transfer/filtering, BGR conversion,
+    and hstack all execute successfully.
+    """
+    cmd = _lens_decoder_command(
+        source,
+        stream0,
+        stream1,
+        source_width,
+        source_height,
+        fps=fps,
+        start=start,
+        frame_count=1,
+        decoder_backend=backend,
+        vaapi_device=vaapi_device,
+    )
+
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=float(
+                timeout_s
+            ),
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "ffmpeg was not found. Install a full FFmpeg build first."
+        ) from exc
+    except subprocess.TimeoutExpired:
+        return (
+            False,
+            "smoke test timed out",
+        )
+
+    if result.returncode == 0:
+        return (
+            True,
+            "exact lens decode smoke test passed",
+        )
+
+    stderr = (
+        result.stderr.decode(
+            "utf-8",
+            "replace",
+        )
+        if result.stderr
+        else ""
+    ).strip()
+
+    if len(stderr) > 500:
+        stderr = (
+            stderr[:500]
+            + "…"
+        )
+
+    return (
+        False,
+        stderr
+        or (
+            "ffmpeg lens decode smoke test failed "
+            f"with exit code {result.returncode}"
+        ),
+    )
+
+
+def _select_decoder_backend(
+    source,
+    stream0,
+    stream1,
+    source_width,
+    source_height,
+    *,
+    fps,
+    start,
+    requested="auto",
+    preferred_vaapi_device=None,
+):
+    requested = str(
+        requested
+    ).lower()
+
+    if requested not in (
+        "auto",
+        "software",
+        "vaapi",
+    ):
+        raise ValueError(
+            "decoder must be 'auto', 'software', or 'vaapi'"
+        )
+
+    if requested == "software":
+        return DecoderSelection(
+            requested="software",
+            backend="software",
+            vaapi_device=None,
+            smoke_tested=False,
+            fallback=False,
+            reason="software decoder explicitly requested",
+        )
+
+    candidates = _candidate_vaapi_devices(
+        preferred_vaapi_device
+    )
+
+    if not candidates:
+        if requested == "vaapi":
+            raise RuntimeError(
+                "VAAPI decoding was requested but no render device is "
+                "available. Use --vaapi-device to specify one."
+            )
+
+        return DecoderSelection(
+            requested="auto",
+            backend="software",
+            vaapi_device=None,
+            smoke_tested=False,
+            fallback=True,
+            reason="no VAAPI render device available",
+        )
+
+    failures = []
+
+    for device in candidates:
+        ok, reason = _smoke_test_lens_decoder(
+            source,
+            stream0,
+            stream1,
+            source_width,
+            source_height,
+            fps=fps,
+            start=start,
+            backend="vaapi",
+            vaapi_device=device,
+        )
+
+        if ok:
+            return DecoderSelection(
+                requested=requested,
+                backend="vaapi",
+                vaapi_device=device,
+                smoke_tested=True,
+                fallback=False,
+                reason=reason,
+            )
+
+        failures.append(
+            f"{device}: {reason}"
+        )
+
+    failure_text = "; ".join(
+        failures
+    )
+
+    if requested == "vaapi":
+        raise RuntimeError(
+            "VAAPI decoding was requested but the exact runtime "
+            "lens-decode smoke test failed. "
+            + failure_text
+        )
+
+    return DecoderSelection(
+        requested="auto",
+        backend="software",
+        vaapi_device=None,
+        smoke_tested=True,
+        fallback=True,
+        reason=(
+            "VAAPI runtime smoke test failed; using software decode. "
+            + failure_text
+        ),
+    )
 
 
 def _video_encoder_command(
@@ -195,8 +495,17 @@ def build_export_frame_groups(
     fps,
 ):
     """
-    Allocate one CFR project frame sequence, then group contiguous frames by
-    active Clip. This avoids independent per-Clip duration rounding drift.
+    Allocate one Project-wide CFR sequence using rounded cumulative Clip
+    boundaries.
+
+    A Clip boundary at time ``T`` maps to ``round(T * fps)``. Using cumulative
+    boundary rounding rather than classifying every frame-start timestamp
+    avoids an asymmetric ``ceil`` effect where a 6.016 s Clip at 30 fps would
+    incorrectly receive 181 frames even though the nearest CFR boundary is
+    frame 180.
+
+    This preserves the one-global-clock invariant and minimizes every Clip
+    boundary error to approximately half an output frame.
     """
     spans = list(spans)
 
@@ -223,24 +532,49 @@ def build_export_frame_groups(
     )
 
     groups = []
-    active = None
+    previous_end_frame = 0
 
-    for frame_index in range(
-        total_frames
+    for span_index, span in enumerate(
+        spans
     ):
-        project_time = min(
-            float(frame_index) / fps,
-            max(
-                0.0,
-                project_duration - 1e-9,
-            ),
+        is_last = (
+            span_index
+            == len(spans) - 1
         )
-        span, source_time = (
-            timeline_time_to_source(
-                spans,
-                project_time,
+
+        end_frame = (
+            total_frames
+            if is_last
+            else int(
+                round(
+                    float(
+                        span.timeline_end
+                    )
+                    * fps
+                )
             )
         )
+        end_frame = max(
+            previous_end_frame,
+            min(
+                total_frames,
+                end_frame,
+            ),
+        )
+        frame_count = (
+            end_frame
+            - previous_end_frame
+        )
+
+        if frame_count <= 0:
+            # A positive Clip shorter than half an output-frame interval can be
+            # unrepresentable at the fixed Output Profile frame rate. Do not
+            # manufacture duration by stealing frames from neighboring Clips.
+            previous_end_frame = (
+                end_frame
+            )
+            continue
+
         clip_index = project.clip_index(
             span.clip_id
         )
@@ -250,43 +584,66 @@ def build_export_frame_groups(
                 f"Timeline references missing Clip {span.clip_id}"
             )
 
-        if (
-            active is None
-            or active["clip_id"]
-            != span.clip_id
-        ):
-            if active is not None:
-                groups.append(
-                    ExportFrameGroup(
-                        **active
-                    )
-                )
+        project_time_start = (
+            float(
+                previous_end_frame
+            )
+            / fps
+        )
 
-            active = {
-                "clip_id": span.clip_id,
-                "clip_index": int(
-                    clip_index
-                ),
-                "source": span.source,
-                "first_frame_index": int(
-                    frame_index
-                ),
-                "frame_count": 1,
-                "project_time_start": float(
-                    project_time
-                ),
-                "source_time_start": float(
-                    source_time
-                ),
-            }
-        else:
-            active["frame_count"] += 1
+        # CFR boundary rounding can place the first Project frame a fraction of
+        # one frame before or after the exact mathematical Clip boundary. Map
+        # that quantized frame into the Clip, clamped to the active source
+        # range.
+        source_offset = max(
+            0.0,
+            project_time_start
+            - float(
+                span.timeline_start
+            ),
+        )
+        source_time_start = min(
+            float(
+                span.source_out
+            ),
+            float(
+                span.source_in
+            )
+            + source_offset,
+        )
 
-    if active is not None:
         groups.append(
             ExportFrameGroup(
-                **active
+                clip_id=span.clip_id,
+                clip_index=int(
+                    clip_index
+                ),
+                source=span.source,
+                first_frame_index=int(
+                    previous_end_frame
+                ),
+                frame_count=int(
+                    frame_count
+                ),
+                project_time_start=float(
+                    project_time_start
+                ),
+                source_time_start=float(
+                    source_time_start
+                ),
             )
+        )
+
+        previous_end_frame = (
+            end_frame
+        )
+
+    if sum(
+        group.frame_count
+        for group in groups
+    ) != total_frames:
+        raise RuntimeError(
+            "Internal CFR frame allocation does not cover the complete Project"
         )
 
     return groups, total_frames
@@ -393,6 +750,8 @@ def _render_video_stream(
     imu_offset_ms,
     crf,
     preset,
+    decoder_mode,
+    vaapi_device,
     progress_callback,
 ):
     encoder = subprocess.Popen(
@@ -408,6 +767,16 @@ def _render_video_stream(
         stderr=subprocess.PIPE,
         bufsize=16 * 1024 * 1024,
     )
+
+    projector = RectilinearProjector(
+        int(panorama_width),
+        int(panorama_height),
+        int(profile.width),
+        int(profile.height),
+    )
+
+    video_profiler = StageProfiler()
+    projection_profiler = StageProfiler()
 
     rendered_frames = 0
     total_frames = sum(
@@ -469,6 +838,56 @@ def _render_video_stream(
                     "The two lens streams have different dimensions"
                 )
 
+            with video_profiler.measure(
+                "decoder_backend_probe"
+            ):
+                decoder_selection = (
+                    _select_decoder_backend(
+                        source,
+                        stream0,
+                        stream1,
+                        source_width,
+                        source_height,
+                        fps=profile.fps,
+                        start=(
+                            group.source_time_start
+                        ),
+                        requested=(
+                            decoder_mode
+                        ),
+                        preferred_vaapi_device=(
+                            vaapi_device
+                        ),
+                    )
+                )
+
+            decoder_label = (
+                (
+                    "VAAPI "
+                    + str(
+                        decoder_selection.vaapi_device
+                    )
+                )
+                if (
+                    decoder_selection.backend
+                    == "vaapi"
+                )
+                else "software"
+            )
+
+            _emit(
+                progress_callback,
+                "decoder",
+                (
+                    f"Decoder Clip {group_number}/{len(groups)} — "
+                    f"{decoder_label}"
+                ),
+                clip_id=clip.id,
+                decoder=(
+                    decoder_selection.to_dict()
+                ),
+            )
+
             _emit(
                 progress_callback,
                 "render-clip",
@@ -481,41 +900,56 @@ def _render_video_stream(
                 frame_count=group.frame_count,
             )
 
-            calibration = extract_calibration(
-                source
-            )
-            mapper = FactoryCalibratedMapper(
-                calibration,
-                source_width,
-                source_height,
-                out_w=int(
-                    panorama_width
-                ),
-                out_h=int(
-                    panorama_height
-                ),
-            )
+            with video_profiler.measure(
+                "clip_setup_calibration_maps"
+            ):
+                calibration = extract_calibration(
+                    source
+                )
+                mapper = FactoryCalibratedMapper(
+                    calibration,
+                    source_width,
+                    source_height,
+                    out_w=int(
+                        panorama_width
+                    ),
+                    out_h=int(
+                        panorama_height
+                    ),
+                )
 
             decode_duration = (
                 float(group.frame_count)
                 / float(profile.fps)
             )
-            source_pts = source_frame_times(
-                source,
-                stream0,
-                group.source_time_start,
-                decode_duration,
-            )
-            exposure_times, pts_diagnostics = (
-                preview_exposure_times(
+            with video_profiler.measure(
+                "clip_setup_source_pts"
+            ):
+                (
                     source_pts,
-                    start=(
-                        group.source_time_start
-                    ),
-                    duration=decode_duration,
-                    output_fps=profile.fps,
+                    source_pts_diagnostics,
+                ) = source_frame_times(
+                    source,
+                    stream0,
+                    group.source_time_start,
+                    decode_duration,
+                    probe=probe,
+                    return_diagnostics=True,
                 )
-            )
+                exposure_times, pts_diagnostics = (
+                    preview_exposure_times(
+                        source_pts,
+                        start=(
+                            group.source_time_start
+                        ),
+                        duration=decode_duration,
+                        output_fps=profile.fps,
+                    )
+                )
+                pts_diagnostics = {
+                    **source_pts_diagnostics,
+                    **pts_diagnostics,
+                }
 
             if (
                 len(exposure_times)
@@ -528,42 +962,54 @@ def _render_video_stream(
             leveled_gravity = None
 
             if level_horizon:
-                leveled_gravity = (
-                    _orientation_gravity_for_times(
-                        source,
-                        exposure_times,
-                        fps=profile.fps,
-                        level_smoothing_ms=(
-                            level_smoothing_ms
-                        ),
-                        imu_source=imu_source,
-                        imu_offset_ms=(
-                            imu_offset_ms
-                        ),
+                with video_profiler.measure(
+                    "clip_setup_imu"
+                ):
+                    leveled_gravity = (
+                        _orientation_gravity_for_times(
+                            source,
+                            exposure_times,
+                            fps=profile.fps,
+                            level_smoothing_ms=(
+                                level_smoothing_ms
+                            ),
+                            imu_source=imu_source,
+                            imu_offset_ms=(
+                                imu_offset_ms
+                            ),
+                        )
                     )
-                )
 
-            decoder = subprocess.Popen(
-                _lens_decoder_command(
-                    source,
-                    stream0,
-                    stream1,
-                    source_width,
-                    source_height,
-                    fps=profile.fps,
-                    start=(
-                        group.source_time_start
+            with video_profiler.measure(
+                "decoder_startup"
+            ):
+                decoder_process = subprocess.Popen(
+                    _lens_decoder_command(
+                        source,
+                        stream0,
+                        stream1,
+                        source_width,
+                        source_height,
+                        fps=profile.fps,
+                        start=(
+                            group.source_time_start
+                        ),
+                        frame_count=(
+                            group.frame_count
+                        ),
+                        decoder_backend=(
+                            decoder_selection.backend
+                        ),
+                        vaapi_device=(
+                            decoder_selection.vaapi_device
+                        ),
                     ),
-                    frame_count=(
-                        group.frame_count
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    bufsize=(
+                        16 * 1024 * 1024
                     ),
-                ),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                bufsize=(
-                    16 * 1024 * 1024
-                ),
-            )
+                )
 
             stacked_width = (
                 source_width * 2
@@ -579,10 +1025,13 @@ def _render_video_stream(
                 for local_index in range(
                     group.frame_count
                 ):
-                    raw = _read_exact(
-                        decoder.stdout,
-                        frame_bytes,
-                    )
+                    with video_profiler.measure(
+                        "decoder_read_wait"
+                    ):
+                        raw = _read_exact(
+                            decoder_process.stdout,
+                            frame_bytes,
+                        )
 
                     if raw is None:
                         raise RuntimeError(
@@ -608,59 +1057,101 @@ def _render_video_stream(
                         source_width:,
                     ]
 
-                    panorama = mapper.stitch(
-                        lens0,
-                        lens1,
-                    )
+                    with video_profiler.measure(
+                        "factory_stitch"
+                    ):
+                        panorama = mapper.stitch(
+                            lens0,
+                            lens1,
+                        )
+
+                    content_rotation = None
 
                     if level_horizon:
-                        rotation, _diagnostics = (
-                            horizon_correction_from_gravity(
-                                leveled_gravity[
-                                    local_index
-                                ],
-                                strength=(
-                                    level_strength
-                                ),
+                        with video_profiler.measure(
+                            "horizon_rotation_math"
+                        ):
+                            (
+                                content_rotation,
+                                _diagnostics,
+                            ) = (
+                                horizon_correction_from_gravity(
+                                    leveled_gravity[
+                                        local_index
+                                    ],
+                                    strength=(
+                                        level_strength
+                                    ),
+                                )
                             )
-                        )
-                        panorama = (
-                            rotate_equirectangular(
-                                panorama,
-                                rotation,
-                            )
-                        )
 
                     source_time = float(
                         exposure_times[
                             local_index
                         ]
                     )
-                    sample = (
-                        evaluate_clip_view_path(
-                            clip,
-                            source_time,
-                            interpolation=(
-                                project.camera_motion_easing
-                            ),
-                            strength=(
-                                project.camera_motion_strength
-                            ),
+                    with video_profiler.measure(
+                        "view_path_evaluation"
+                    ):
+                        sample = (
+                            evaluate_clip_view_path(
+                                clip,
+                                source_time,
+                                interpolation=(
+                                    project.camera_motion_easing
+                                ),
+                                strength=(
+                                    project.camera_motion_strength
+                                ),
+                            )
                         )
-                    )
-                    frame = (
-                        reframe_equirectangular(
-                            panorama,
-                            sample.camera,
-                            profile.width,
-                            profile.height,
-                        )
-                    )
+
+                    # Compose horizon correction with the Virtual Camera
+                    # inverse mapping and sample the factory panorama only
+                    # once after stitch. This replaces the previous:
+                    #
+                    #   rotate full 3840x1920 panorama
+                    #   -> reframe to 1920x1080/1080x1920
+                    #
+                    # with one direct panorama -> rectilinear remap.
+                    with video_profiler.measure(
+                        "composed_projection"
+                    ):
+                        with projection_profiler.measure(
+                            "map_generation"
+                        ):
+                            (
+                                map_x,
+                                map_y,
+                            ) = projector.map(
+                                sample.camera,
+                                content_rotation=(
+                                    content_rotation
+                                ),
+                            )
+
+                        with projection_profiler.measure(
+                            "panorama_remap"
+                        ):
+                            frame = cv2.remap(
+                                panorama,
+                                map_x,
+                                map_y,
+                                interpolation=(
+                                    cv2.INTER_LINEAR
+                                ),
+                                borderMode=(
+                                    cv2.BORDER_REPLICATE
+                                ),
+                            )
 
                     try:
-                        encoder.stdin.write(
-                            frame.tobytes()
-                        )
+                        with video_profiler.measure(
+                            "encoder_write_wait"
+                        ):
+                            encoder.stdin.write(
+                                frame.tobytes()
+                            )
                     except BrokenPipeError as exc:
                         raise RuntimeError(
                             "Final H.264 encoder stopped unexpectedly"
@@ -706,20 +1197,23 @@ def _render_video_stream(
                         )
 
             finally:
-                if decoder.stdout:
-                    decoder.stdout.close()
+                if decoder_process.stdout:
+                    decoder_process.stdout.close()
 
-                decoder_stderr = (
-                    decoder.stderr.read().decode(
-                        "utf-8",
-                        "replace",
+                with video_profiler.measure(
+                    "decoder_finalize"
+                ):
+                    decoder_stderr = (
+                        decoder_process.stderr.read().decode(
+                            "utf-8",
+                            "replace",
+                        )
+                        if decoder_process.stderr
+                        else ""
                     )
-                    if decoder.stderr
-                    else ""
-                )
-                decoder.wait()
+                    decoder_process.wait()
 
-            if decoder.returncode != 0:
+            if decoder_process.returncode != 0:
                 raise RuntimeError(
                     "FFmpeg lens decode failed:\n"
                     + decoder_stderr
@@ -737,6 +1231,9 @@ def _render_video_stream(
                     "frames_rendered": int(
                         clip_frames
                     ),
+                    "decoder": (
+                        decoder_selection.to_dict()
+                    ),
                     "source_pts": (
                         pts_diagnostics
                     ),
@@ -753,15 +1250,18 @@ def _render_video_stream(
             except BrokenPipeError:
                 pass
 
-        encoder_stderr = (
-            encoder.stderr.read().decode(
-                "utf-8",
-                "replace",
+        with video_profiler.measure(
+            "encoder_finalize"
+        ):
+            encoder_stderr = (
+                encoder.stderr.read().decode(
+                    "utf-8",
+                    "replace",
+                )
+                if encoder.stderr
+                else ""
             )
-            if encoder.stderr
-            else ""
-        )
-        encoder.wait()
+            encoder.wait()
 
     if encoder.returncode != 0:
         raise RuntimeError(
@@ -780,7 +1280,66 @@ def _render_video_stream(
         - started
     )
 
+    stage_timings = video_profiler.summary(
+        total_seconds=elapsed,
+    )
+    dominant = dominant_stage(
+        stage_timings
+    )
+
+    decoder_counts = {}
+
+    for clip_summary in clip_summaries:
+        backend = (
+            clip_summary.get(
+                "decoder",
+                {},
+            ).get(
+                "backend",
+                "unknown",
+            )
+        )
+        decoder_counts[backend] = (
+            decoder_counts.get(
+                backend,
+                0,
+            )
+            + 1
+        )
+
     return {
+        "decoder_policy": {
+            "requested": str(
+                decoder_mode
+            ),
+            "preferred_vaapi_device": (
+                str(
+                    vaapi_device
+                )
+                if vaapi_device
+                else None
+            ),
+            "clip_backend_counts": (
+                decoder_counts
+            ),
+        },
+        "projection_pipeline": (
+            "factory-panorama -> composed-horizon-camera -> rectilinear"
+        ),
+        "post_stitch_resamples_per_frame": 1,
+        "projection_kernel": (
+            "float32-analytic-composed-map"
+        ),
+        "projection_breakdown": (
+            projection_profiler.summary(
+                total_seconds=elapsed,
+            )
+        ),
+        "stage_timings": stage_timings,
+        "dominant_stage": dominant,
+        "measured_stage_seconds": float(
+            video_profiler.total_measured_seconds()
+        ),
         "frames": int(
             rendered_frames
         ),
@@ -1162,6 +1721,8 @@ def export_project_video(
     imu_offset_ms=0.0,
     crf=18,
     preset="medium",
+    decoder="auto",
+    vaapi_device=None,
     progress_callback=None,
 ):
     project_path = Path(
@@ -1187,6 +1748,18 @@ def export_project_video(
     panorama_height = int(
         panorama_height
     )
+    decoder = str(
+        decoder
+    ).lower()
+
+    if decoder not in (
+        "auto",
+        "software",
+        "vaapi",
+    ):
+        raise ValueError(
+            "decoder must be 'auto', 'software', or 'vaapi'"
+        )
 
     if (
         panorama_width <= 0
@@ -1294,6 +1867,7 @@ def export_project_video(
     )
 
     started = time.perf_counter()
+    overall_profiler = StageProfiler()
 
     try:
         with tempfile.TemporaryDirectory(
@@ -1314,57 +1888,69 @@ def export_project_video(
                 / "project_audio.m4a"
             )
 
-            video_summary = (
-                _render_video_stream(
-                    project,
-                    spans,
-                    groups,
-                    probes,
-                    video_only,
-                    profile=profile,
-                    panorama_width=(
-                        panorama_width
-                    ),
-                    panorama_height=(
-                        panorama_height
-                    ),
-                    level_horizon=(
-                        level_horizon
-                    ),
-                    level_strength=(
-                        level_strength
-                    ),
-                    level_smoothing_ms=(
-                        level_smoothing_ms
-                    ),
-                    imu_source=(
-                        imu_source
-                    ),
-                    imu_offset_ms=(
-                        imu_offset_ms
-                    ),
-                    crf=crf,
-                    preset=preset,
-                    progress_callback=(
-                        progress_callback
-                    ),
+            with overall_profiler.measure(
+                "video_render"
+            ):
+                video_summary = (
+                    _render_video_stream(
+                        project,
+                        spans,
+                        groups,
+                        probes,
+                        video_only,
+                        profile=profile,
+                        panorama_width=(
+                            panorama_width
+                        ),
+                        panorama_height=(
+                            panorama_height
+                        ),
+                        level_horizon=(
+                            level_horizon
+                        ),
+                        level_strength=(
+                            level_strength
+                        ),
+                        level_smoothing_ms=(
+                            level_smoothing_ms
+                        ),
+                        imu_source=(
+                            imu_source
+                        ),
+                        imu_offset_ms=(
+                            imu_offset_ms
+                        ),
+                        crf=crf,
+                        preset=preset,
+                        decoder_mode=(
+                            decoder
+                        ),
+                        vaapi_device=(
+                            vaapi_device
+                        ),
+                        progress_callback=(
+                            progress_callback
+                        ),
+                    )
                 )
-            )
 
-            audio_summary = (
-                _build_project_audio(
-                    project,
-                    spans,
-                    probes,
-                    audio_only,
-                    target_duration=(
-                        video_duration
-                    ),
-                    progress_callback=(
-                        progress_callback
-                    ),
+            with overall_profiler.measure(
+                "audio_assembly"
+            ):
+                audio_summary = (
+                    _build_project_audio(
+                        project,
+                        spans,
+                        probes,
+                        audio_only,
+                        target_duration=(
+                            video_duration
+                        ),
+                        progress_callback=(
+                            progress_callback
+                        ),
+                    )
                 )
-            )
 
             _emit(
                 progress_callback,
@@ -1372,17 +1958,20 @@ def export_project_video(
                 "Muxing final H.264 MP4",
             )
 
-            _mux_final(
-                video_only,
-                (
-                    audio_only
-                    if audio_summary[
-                        "included"
-                    ]
-                    else None
-                ),
-                output_preparing,
-            )
+            with overall_profiler.measure(
+                "final_mux"
+            ):
+                _mux_final(
+                    video_only,
+                    (
+                        audio_only
+                        if audio_summary[
+                            "included"
+                        ]
+                        else None
+                    ),
+                    output_preparing,
+                )
 
             _emit(
                 progress_callback,
@@ -1390,23 +1979,26 @@ def export_project_video(
                 "Verifying completed export",
             )
 
-            verification = (
-                verify_project_export(
-                    output_preparing,
-                    profile=profile,
-                    expected_frames=(
-                        total_frames
-                    ),
-                    expected_duration=(
-                        video_duration
-                    ),
-                    expect_audio=(
-                        audio_summary[
-                            "included"
-                        ]
-                    ),
+            with overall_profiler.measure(
+                "final_verification"
+            ):
+                verification = (
+                    verify_project_export(
+                        output_preparing,
+                        profile=profile,
+                        expected_frames=(
+                            total_frames
+                        ),
+                        expected_duration=(
+                            video_duration
+                        ),
+                        expect_audio=(
+                            audio_summary[
+                                "included"
+                            ]
+                        ),
+                    )
                 )
-            )
 
         output_preparing.replace(
             output
@@ -1422,6 +2014,57 @@ def export_project_video(
         time.perf_counter()
         - started
     )
+
+    overall_stage_timings = (
+        overall_profiler.summary(
+            total_seconds=elapsed,
+        )
+    )
+    video_stage_timings = (
+        video_summary.get(
+            "stage_timings",
+            {}
+        )
+    )
+    dominant_video = (
+        video_summary.get(
+            "dominant_stage"
+        )
+    )
+
+    performance = {
+        "processing_seconds": float(
+            elapsed
+        ),
+        "frames": int(
+            total_frames
+        ),
+        "processing_fps": (
+            float(
+                total_frames
+                / elapsed
+            )
+            if elapsed > 0.0
+            else 0.0
+        ),
+        "real_time_factor": (
+            float(
+                elapsed
+                / video_duration
+            )
+            if video_duration > 0.0
+            else None
+        ),
+        "overall_stage_timings": (
+            overall_stage_timings
+        ),
+        "video_stage_timings": (
+            video_stage_timings
+        ),
+        "dominant_video_stage": (
+            dominant_video
+        ),
+    }
 
     _emit(
         progress_callback,
@@ -1480,6 +2123,18 @@ def export_project_video(
                 project.camera_motion_strength
             ),
         },
+        "decoder": {
+            "requested": str(
+                decoder
+            ),
+            "preferred_vaapi_device": (
+                str(
+                    vaapi_device
+                )
+                if vaapi_device
+                else None
+            ),
+        },
         "encoder": {
             "codec": "libx264",
             "crf": int(
@@ -1496,6 +2151,7 @@ def export_project_video(
         "video": video_summary,
         "audio": audio_summary,
         "verification": verification,
+        "performance": performance,
         "processing_seconds": float(
             elapsed
         ),

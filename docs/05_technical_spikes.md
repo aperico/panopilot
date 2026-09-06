@@ -1,7 +1,7 @@
 # PanoPilot — Technical Spikes
 
 Status: Draft  
-Baseline: TS-0.3  
+Baseline: TS-0.9
 Scope: Iteration 1 Architecture Validation  
 Parent: `04_functional_architecture.md`
 
@@ -1115,3 +1115,152 @@ confirm:
 3. correct Clip boundary order and trims;
 4. A/V synchronization within `EXPORT-AV-SYNC-001`;
 5. practical render completion on the Fedora reference machine.
+
+
+---
+
+# 16. SPIKE-03 Closure — PASS
+
+The user validated the PanoPilot 0.20 final exported Project on representative
+media as correct.
+
+SPIKE-03 is therefore **PASS for Iteration 1**.
+
+Validated end-to-end behaviors include:
+
+- ordered multi-Clip final export;
+- original OSV source rendering;
+- Clip trim application;
+- persisted View Path application;
+- configurable Camera Motion application;
+- conventional H.264 MP4 delivery.
+
+PanoPilot 0.21 moves from feasibility validation into optimization. The first
+optimization removes the intermediate full-panorama horizon resample by
+composing horizon and Virtual Camera spherical mappings.
+
+Future performance work shall preserve the now-frozen Iteration-1 semantic
+baseline.
+
+
+---
+
+# 17. Post-Spike Performance Baseline — PanoPilot 0.22
+
+All Iteration-1 feasibility spikes are closed. PanoPilot 0.22 introduces a
+measurement gate for post-spike optimization.
+
+A representative export report shall be captured before another major
+render-path optimization is selected.
+
+Primary decision candidates are expected to include:
+
+- original lens decode throughput;
+- factory calibrated stitch cost;
+- composed rectilinear projection cost;
+- H.264 encoder backpressure.
+
+The actual measured dominant stage shall determine the next optimization.
+
+
+---
+
+# 18. Post-Spike Benchmark Result — PanoPilot 0.23
+
+Representative accepted media produced the first complete performance baseline:
+
+```text
+23.7 s Project
+148.04 s export
+4.80 output frames/s
+6.25× real-time factor
+```
+
+Measured hotspot order:
+
+1. factory stitch — 38.2%;
+2. composed projection — 29.3%;
+3. source PTS setup — 26.8%;
+4. lens decoder wait — 2.6%;
+5. encoder write wait — 1.4%.
+
+This measurement explicitly rules out hardware HEVC decode or H.264 encode as
+the first optimization target. 0.23 therefore addresses source-PTS setup and
+factory blending before introducing GPU media paths or a more invasive direct
+lens projection.
+
+
+---
+
+# 19. 0.23 Benchmark Result and 0.24 Decision
+
+The representative 0.23 export measured:
+
+```text
+total export            69.64 s
+throughput               10.21 fps
+real-time factor          2.94×
+
+composed projection      73.2%
+factory stitch           13.3%
+decoder wait              6.1%
+encoder write             3.1%
+source PTS setup          ~0%
+```
+
+The CFR source-time optimization therefore closed the previous 26.8% setup
+hotspot.
+
+0.24 targets composed projection directly. Hardware video decode/encode and
+direct lens-to-output fusion remain deferred because the measured projection
+kernel is materially larger than either codec stage.
+
+
+---
+
+# 20. 0.24 Benchmark Result and 0.25 Decision
+
+The representative 0.24 export measured:
+
+```text
+41.39 s total
+17.18 fps
+1.75× real-time factor
+
+composed projection       48.3%
+factory stitch            25.4%
+decoder wait              12.1%
+encoder write              7.0%
+```
+
+Projection sub-profiling showed:
+
+```text
+map generation            18.88 s
+panorama remap             0.86 s
+```
+
+Therefore the next optimization remains inside map generation. 0.25 removes a
+general floating-point modulo from the per-pixel hot path while preserving the
+accepted map exactly.
+
+
+---
+
+# 21. 0.25 Benchmark Result and 0.26 Decision
+
+The representative 0.25 export measured:
+
+```text
+39.01 s total
+18.23 fps
+1.65× real-time factor
+
+decoder read/wait        33.6%
+factory stitch           25.1%
+composed projection      24.9%
+encoder write             9.0%
+```
+
+Decoder wait is now the largest measured stage, so 0.26 introduces
+runtime-tested VAAPI decode before pursuing more invasive geometry fusion.
