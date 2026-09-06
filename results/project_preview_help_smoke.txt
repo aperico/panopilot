@@ -1,0 +1,18 @@
+usage: panopilot project-preview [-h] [--view-long-edge VIEW_LONG_EDGE]
+                                 [--preview-fps PREVIEW_FPS]
+                                 [--cache-dir CACHE_DIR] [--rebuild-preview]
+                                 [--no-playback-audio]
+                                 project
+
+positional arguments:
+  project               PanoPilot project JSON path
+
+options:
+  -h, --help            show this help message and exit
+  --view-long-edge VIEW_LONG_EDGE
+                        Conventional preview long edge (default: 960)
+  --preview-fps PREVIEW_FPS
+                        Panoramic editing preview frame rate (default: 20)
+  --cache-dir CACHE_DIR
+  --rebuild-preview
+  --no-playback-audio

@@ -1,7 +1,7 @@
 # PanoPilot — Technical Spikes
 
 Status: Draft  
-Baseline: TS-0.1  
+Baseline: TS-0.3  
 Scope: Iteration 1 Architecture Validation  
 Parent: `04_functional_architecture.md`
 
@@ -1022,3 +1022,96 @@ desktop shell during SPIKE-01.
 
 The purpose of the spike is to establish technical truth for the next
 architecture decision.
+
+
+---
+
+# 14. Spike Closure Status — PanoPilot 0.19
+
+## SPIKE-01 — OSV to Navigable Panorama
+
+**Status:** PASS for Iteration 1.
+
+Evidence established:
+
+- real DJI Osmo 360 OSV inspection;
+- synchronized dual HEVC Main10 lens decode;
+- DJI factory calibration extraction;
+- 3840-calibration to 1920-source scaling;
+- factory-calibrated panoramic reconstruction;
+- per-frame and high-rate DJI orientation extraction;
+- IMU/video timing alignment;
+- spherical horizon stabilization;
+- H.264 panoramic editing preview with source audio;
+- disposable preview cache.
+
+## SPIKE-02 — Canonical Virtual Camera
+
+**Status:** PASS for Iteration 1.
+
+Evidence established:
+
+- canonical yaw/pitch/horizontal-FOV semantics;
+- 16:9 and 9:16 rectilinear output;
+- full horizontal panoramic navigation;
+- Fedora GNOME/Wayland desktop interaction using PySide6;
+- exploration separate from editing;
+- explicit persisted Camera Positions.
+
+## SPIKE-03 — Source-Time View Path to Conventional Output
+
+**Status:** PARTIALLY CLOSED / final export gate remains.
+
+Validated:
+
+- Source-Time Camera Position persistence;
+- zero/one/multiple Camera Position semantics;
+- shortest-route yaw interpolation;
+- configurable easing presets and easing Amount;
+- Clip preview application of persisted View Path;
+- project-aware conventional frame rendering;
+- sequential Project Time mapping;
+- multi-Clip Project Preview with active-Clip View Path evaluation.
+
+Remaining architecture exit evidence:
+
+- final-quality sequential MP4 from original OSV sources;
+- complete Project audio assembly;
+- measured preview/final framing equivalence over representative Camera Paths;
+- output-profile normalization for final delivery.
+
+The next implementation milestone shall therefore target the final sequential
+render/export path rather than additional exploratory panoramic processing.
+
+
+---
+
+# 15. SPIKE-03 Final Export Implementation — PanoPilot 0.20
+
+SPIKE-03 now has an executable original-source Project export path.
+
+Implemented evidence:
+
+- one Project-wide 30 fps frame clock;
+- deterministic Project Time → Clip → Source Time allocation;
+- original synchronized OSV dual-lens decode;
+- DJI factory-calibrated panoramic reconstruction;
+- final-path DJI horizon stabilization;
+- persisted View Path and Camera Motion evaluation per final output frame;
+- conventional 16:9 and 9:16 Output Profile rendering;
+- one continuous H.264 video encode;
+- original source-audio trim assembly in Project order;
+- silence continuity for no-audio Clips in an otherwise audible Project;
+- MP4 mux and post-render verification;
+- transactional output promotion.
+
+**Status:** IMPLEMENTED — USER MEDIA ACCEPTANCE PENDING.
+
+SPIKE-03 shall be marked PASS after representative multi-Clip OSV Projects
+confirm:
+
+1. expected visual framing throughout final playback;
+2. acceptable stitch/stabilization quality at delivery resolution;
+3. correct Clip boundary order and trims;
+4. A/V synchronization within `EXPORT-AV-SYNC-001`;
+5. practical render completion on the Fedora reference machine.

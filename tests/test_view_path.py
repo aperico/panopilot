@@ -66,7 +66,7 @@ def test_after_last_holds_last():
     assert sample.camera.yaw_deg == 80.0
 
 
-def test_linear_midpoint_interpolation():
+def test_smooth_midpoint_interpolation():
     sample = evaluate_view_path(
         [
             pos(

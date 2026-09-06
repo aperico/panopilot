@@ -1,5 +1,218 @@
 # Changelog
 
+## 0.20.0
+
+- Adds final sequential Project export to H.264 MP4.
+- Adds `Export Project…` to the Project Organizer.
+- Adds `panopilot project-export`.
+- Final image rendering uses original OSV lens streams and DJI calibration;
+  the disposable panoramic preview cache is not used as a final render source.
+- Resolves Iteration-1 Output Profile policy to 1920×1080/30 fps for 16:9 and
+  1080×1920/30 fps for 9:16.
+- Allocates final CFR frames on one Project-wide clock to avoid accumulated
+  per-Clip frame rounding drift.
+- Applies Clip trims, persisted View Paths, and configurable Camera Motion to
+  final frames.
+- Assembles original source audio in Project order and inserts silence for
+  no-audio Clips when needed to preserve Timeline alignment.
+- Verifies the completed MP4 before atomically promoting it to the requested
+  output path.
+- Defines exported A/V stream-duration tolerance at 50 ms.
+- Updates numbered engineering documentation through 0.20.
+
+## 0.19.0
+
+- Adds read-only sequential Project Timeline preview.
+- Adds `Preview Project` to the Project Organizer.
+- Adds `panopilot project-preview`.
+- Maps Project Time deterministically to active Clip and Source Time.
+- Applies each active Clip's persisted trim and View Path during Project
+  playback.
+- Applies persisted project Camera Motion easing and Amount consistently.
+- Switches preview audio to the active Clip at Clip boundaries.
+- Adds full-Project seeking with visible Clip boundaries.
+- Pressing Play at Project end restarts from Project Time zero.
+- Uses the existing derived panoramic cache; original OSV remains authoritative
+  for future final rendering.
+- Refreshes numbered engineering documentation through 0.19 and includes it
+  under `docs/`.
+- Adds Project playback mapping, restart, CLI, and architecture regression
+  tests.
+
+## 0.18.8
+
+- Adds configurable project-level Camera Motion easing.
+- Adds easing presets: Smooth, Ease In + Out, Ease In, Ease Out, Linear.
+- Adds a 0–100% Amount control that blends the selected easing curve with
+  linear timing.
+- Adds compact Camera Motion controls to the Clip Editor.
+- Camera Motion changes are Undo/Redo project transactions.
+- Persists Camera Motion in project schema v3.
+- Migrates schema-v1/v2 projects to Smooth / 100% to preserve 0.18.7 behavior.
+- Interactive playback, camera-at, and reframe-path share the same settings.
+- Adds easing, strength, migration, persistence, and editor-state tests.
+
+## 0.18.7
+
+- Replaces piecewise-linear Camera Position timing with quintic
+  ease-in/ease-out (`smootherstep`) by default.
+- Camera motion now reaches each Camera Position with zero velocity and zero
+  acceleration, reducing harsh reframing-point hits.
+- Applies the same eased timing to yaw, pitch, and horizontal FOV.
+- Preserves shortest-route yaw interpolation across the panoramic seam.
+- Keeps exact Camera Position values and Source Times unchanged.
+- Interactive playback and project-aware rendering share the same smoothed
+  View Path evaluator.
+- Adds `eased_alpha` and `interpolation` to View Path diagnostics.
+- Retains internal linear interpolation mode for engineering comparison.
+- Adds regression tests for gentle arrival/departure and seam behavior.
+
+## 0.18.6
+
+- Fixes loading dialogs that remained visible after panoramic preparation
+  completed.
+- Replaces cross-thread nested-event-loop quit signaling with GUI-thread
+  polling of `QThread.isFinished()`.
+- Uses `QDialog.exec()` as the single modal loading event loop.
+- Makes immediate cached-preview completion race-safe.
+- Transfers progress text through a thread-safe queue; worker code never
+  touches Qt widgets.
+- Preserves the 0.18.5 Organizer / Clip Editor local-event-loop lifecycle.
+
+## 0.18.5
+
+- Fixes a fast-cache race in the panoramic loading screen.
+- Starts loading workers via a queued zero-delay timer after the nested Qt
+  event loop begins dispatching.
+- Routes worker progress/completion through a GUI-thread QObject receiver.
+- Removes worker-thread widget updates.
+- Keeps one QApplication alive across Project Organizer / Clip Editor
+  transitions.
+- Replaces mixed QApplication.exec/manual processEvents polling with local Qt
+  QEventLoop instances for both editor windows.
+- Prevents intentional closing of the Organizer from terminating the app while
+  a Clip Editor is about to open.
+- Adds lifecycle regression checks.
+
+## 0.18.4
+
+- Renames Set In / Set Out buttons to Trim In / Trim Out to distinguish Clip
+  trimming from Camera Positions.
+- When a Clip has zero Camera Positions, pressing Play after manually
+  reframing now preserves the explored camera as a preview-only hold instead
+  of snapping to the default camera.
+- Preview-only playback does not create or save a Camera Position.
+- Shows `Preview-only camera — Set Camera to save this view` while relevant.
+- Once a Clip has Camera Positions, playback continues to use the persisted
+  View Path exclusively.
+- Adds explicit transient-hold vs persisted-path playback diagnostics.
+- Adds regression tests for zero-View-Path explored-camera playback.
+
+## 0.18.3
+
+- Renames the primary Camera Position action from `Use View` to `Set Camera`.
+- Setting/updating a Camera Position now atomically saves the project
+  immediately in the desktop Clip Editor.
+- Keeps Undo/Redo history after Camera Position auto-save.
+- Adds explicit timestamped Camera Position save feedback.
+- Adds a compact `CAM N` count to the Clip Editor toolbar.
+- Camera Position commit/save failures now show a desktop error dialog.
+- Project Organizer explicitly warns when a Clip has zero saved Camera
+  Positions and therefore uses the default camera.
+- Adds regression tests for Camera Position auto-save and update persistence.
+
+## 0.18.2
+
+- Makes stable Clip id the canonical identity inside the multi-Clip Clip Editor.
+- Project Organizer passes the selected Clip id into the Clip Editor.
+- Camera Position create/update, delete, trim, seek, and playback target the
+  exact Clip instance.
+- Adds clip-id-native ProjectSession Camera Position operations.
+- `camera-at` and `reframe-path` accept Clip id or source path.
+- Source selector resolution tolerates unambiguous relative/absolute path
+  aliases.
+- Rendering uses the resolved Clip's persisted source reference.
+- Resolver errors list available Clip ids and source paths.
+- Adds regression tests proving one setpoint holds the entire selected Clip and
+  two setpoints interpolate without affecting other Clips.
+
+## 0.18.1
+
+- Reorganizes the Clip Editor into a compact transport row, editing row,
+  trim-summary row, and full-width timeline.
+- Centers the reframed video in a dark expanding media canvas.
+- Removes the white unused area caused by long horizontal text labels.
+- Replaces secondary action labels with icon tool buttons and tooltips.
+- Keeps `Use View`, Set In, and Set Out explicit as primary editing actions.
+- Separates Source Time, Clip-local Time, project save state, and camera state.
+- Replaces the long trim sentence with compact In / Clip / Out value chips.
+- Reduces the video HUD to two concise lines.
+- Stops calling `adjustSize()` for every rendered frame.
+- Adds a reusable Qt loading dialog backed by a worker thread.
+- Panoramic preview preparation now stays inside the desktop application
+  instead of appearing to revert to terminal-only feedback.
+
+## 0.18.0
+
+- Adds the desktop multi-Clip Project Organizer.
+- Adds native multi-select OSV import.
+- Adds ordered Clip list with Move Up / Move Down.
+- Adds transactional Clip add, remove, and reorder operations.
+- Adds Undo/Redo and explicit Save for project-structure changes.
+- Adds Edit Selected Clip, returning to the Project Organizer afterward.
+- Adds robust Clip-id allocation after removals.
+- Adds first-class Project helpers: clip-by-id, index, add, remove, move.
+- Preserves Camera Position Source Times across Clip reordering.
+- Calculates sequential active Project duration in the organizer.
+- Keeps repeated source instances out of scope; duplicates are skipped.
+- Adds `panopilot project-edit`.
+- Keeps the proven 0.17.1 Clip Editor unchanged for per-Clip reframing.
+
+## 0.17.1
+
+- Strengthens Clip trim visualization without changing schema-v2 semantics.
+- Adds large, explicit `IN` and `OUT` flags to the source timeline.
+- Adds a visually prominent active-Clip band between In and Out.
+- Adds an always-visible Clip trim summary with In, Out, and duration.
+- Adds immediate timestamp feedback after Set In / Set Out / Clear Trim.
+- Renames the user-facing transient-camera diagnostic from
+  `has_uncommitted_changes` to `camera_exploration_changed`.
+- Keeps `project_dirty` exclusively for actual unsaved Project edits.
+- Retains the Play-at-Out -> restart-at-In behavior from 0.17.
+
+## 0.17.0
+
+- Adds schema-v2 Clip trim metadata: Source-Time In and Out.
+- Automatically migrates schema-v1 projects in memory without implicit save.
+- Adds transactional Set Clip In, Set Clip Out, and Clear Trim operations.
+- Trim operations are Undo/Redo-aware and use explicit Save semantics.
+- Guarantees trim changes never retime persisted Camera Positions.
+- Camera Positions outside trim become dormant rather than being deleted.
+- View Path evaluation now uses only active Camera Positions.
+- Adds Clip-local Time mapping while preserving Source Time persistence.
+- Adds blue trim boundaries, red active markers, and gray dormant markers.
+- Playback is constrained to Clip In/Out.
+- Pressing Play at Clip Out restarts from Clip In; with full-source trim this restarts from zero at the media end.
+- Preserves logical end-of-timeline state even when the cached preview snaps to an earlier final frame.
+- Adds UI-independent sequential Project Timeline spans.
+- Adds `panopilot timeline-info`.
+- Adds migration, trim, dormant-path, timeline, and playback-restart regression tests.
+
+## 0.16.0
+
+- Adds transactional `ProjectSession` history.
+- Adds Undo/Redo for Camera Position create, update, delete, and Output Frame.
+- Adds Delete/Backspace Camera Position editing at the current preview frame.
+- Adds Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y, and editor Undo/Redo buttons.
+- Changes Camera Position commits from auto-save to in-memory edits.
+- Adds explicit Ctrl+S / Save button with atomic project persistence.
+- Adds project dirty state and modified-window indicator.
+- Adds Save / Discard / Cancel close confirmation.
+- Save establishes a clean baseline without clearing Undo history.
+- New edits after Undo clear the Redo branch.
+- Exploration, seek, and playback remain outside project history.
+- Adds transactional history, dirty-state, delete, save, and UI callback tests.
+
 ## 0.15.0
 
 - Adds a disposable panoramic editing-preview cache keyed by source identity and

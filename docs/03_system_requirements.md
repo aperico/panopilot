@@ -1,7 +1,7 @@
 # PanoPilot — System Requirements
 
 Status: Draft  
-Baseline: SYS-0.7  
+Baseline: SYS-0.9  
 Scope: Iteration 1  
 Parent: `01_system_definition.md`  
 Use Cases: `02_use_cases.md`
@@ -1020,9 +1020,12 @@ Validated DJI Osmo 360 source configurations.
 
 ## OUTPUT-PROFILE-001
 
-Iteration 1 output resolution and frame-rate policy for 16:9 and 9:16.
+Iteration 1 output policy:
 
-**Status:** TBD
+- 16:9 = 1920 × 1080 at 30 fps;
+- 9:16 = 1080 × 1920 at 30 fps.
+
+**Status:** Resolved
 
 
 ## CAMERA-EQUIVALENCE-001
@@ -1056,9 +1059,9 @@ Maximum preview audio/video synchronization error.
 
 ## EXPORT-AV-SYNC-001
 
-Maximum exported audio/video synchronization error.
+Maximum accepted exported audio/video stream-duration delta: 50 ms.
 
-**Status:** TBD
+**Status:** Resolved
 
 
 ## SOURCE-IDENTITY-001
@@ -1115,3 +1118,200 @@ Iteration 1 shall be considered functionally complete when the User can:
 The workflow shall require no manual source conversion, proxy generation,
 stitch configuration, panoramic filter configuration, or numerical camera
 orientation entry.
+
+
+---
+
+# 22. Requirement Additions / Refinements — PanoPilot 0.19
+
+The following requirements refine the Iteration-1 baseline without changing the
+core Source-Time and Clip-ownership invariants.
+
+## SYS-POS-008 — Durable Set Camera
+
+When the User invokes Set Camera in the desktop Clip Editor, PanoPilot shall
+atomically persist the resulting Camera Position before reporting the Set Camera
+operation as saved.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-07
+
+
+## SYS-PATH-007 — Configurable Easing Preset
+
+PanoPilot shall permit the User to select one Project Camera Motion easing
+preset from Smooth, Ease In + Out, Ease In, Ease Out, and Linear.
+
+**Priority:** SHOULD  
+**Verification:** Test  
+**Trace:** UC-07
+
+
+## SYS-PATH-008 — Configurable Easing Amount
+
+PanoPilot shall permit the User to configure Project Camera Motion easing
+Amount from 0% through 100%, where 0% produces linear segment timing and 100%
+produces the full selected easing curve.
+
+**Priority:** SHOULD  
+**Verification:** Test  
+**Trace:** UC-07
+
+
+## SYS-PATH-009 — Camera Motion Persistence
+
+Saved Project state shall preserve the selected Camera Motion easing preset and
+Amount.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-11, UC-12
+
+
+## SYS-PATH-010 — Camera Motion Preview/Render Equivalence
+
+For the same Project, Clip, Source Time, Camera Positions, and Camera Motion
+settings, Clip preview, Project preview, and project-aware frame rendering shall
+evaluate equivalent Camera State within `CAMERA-EQUIV-001`.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-07, UC-08, UC-09, UC-13
+
+
+## SYS-TIME-008 — Project Seek
+
+During Project Preview, PanoPilot shall permit the User to select a Project Time
+within the complete Project Timeline.
+
+**Priority:** SHOULD  
+**Verification:** Demonstration  
+**Trace:** UC-09
+
+
+## SYS-TIME-009 — Project-End Replay
+
+When Project Preview is positioned at Project end and the User invokes Play,
+PanoPilot shall restart playback from Project Time zero.
+
+**Priority:** SHOULD  
+**Verification:** Test  
+**Trace:** UC-09
+
+
+## SYS-TIME-010 — Clip-Boundary Continuation
+
+During Project Preview, when playback reaches a Clip Out point and a subsequent
+Clip exists, PanoPilot shall continue playback using the subsequent Clip
+without requiring a User playback command.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-09
+
+
+## SYS-AUDIO-004 — Clip-Boundary Audio Selection
+
+During Project Preview, PanoPilot shall select audio corresponding to the active
+Clip when Project Time crosses a Clip boundary.
+
+**Priority:** MUST  
+**Verification:** Demonstration  
+**Trace:** UC-09
+
+
+## SYS-WORK-001 — Preview Preparation Feedback
+
+While preparing derived panoramic preview media required for Clip or Project
+preview, PanoPilot shall display preparation state in the desktop application.
+
+**Priority:** MUST  
+**Verification:** Demonstration  
+**Trace:** UC-02, UC-08, UC-09
+
+
+## SYS-WORK-002 — Preview Preparation Completion
+
+When required preview preparation completes successfully, PanoPilot shall close
+the preparation state and continue to the requested editor or preview without
+additional User action.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-02, UC-08, UC-09
+
+## 22.1 Current Verification Status
+
+Implemented and regression-tested through PanoPilot 0.19:
+
+- sequential Clip ordering;
+- Clip removal and reorder Undo/Redo;
+- Source-Time trim semantics;
+- dormant out-of-trim Camera Positions;
+- stable Clip-owned View Paths;
+- Set Camera persistence;
+- configurable Camera Motion easing and Amount;
+- Clip playback with View Path application;
+- Project Time to Clip/Source Time mapping;
+- Project Preview sequential Clip transition;
+- Project-end replay behavior;
+- panoramic preview loading-state lifecycle;
+- preview/render use of the same View Path evaluator.
+
+Final sequential MP4 export remains the next major unimplemented Iteration-1
+delivery capability.
+
+
+---
+
+# 23. Export Requirement Refinements — PanoPilot 0.20
+
+## SYS-EXP-012 — Global CFR Frame Allocation
+
+Before final image rendering, PanoPilot shall allocate output video frames on
+one Project-wide constant-frame-rate clock according to `OUTPUT-PROFILE-001`.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+## SYS-EXP-013 — No-Audio Clip Continuity
+
+When at least one Project Clip has source audio and another active Clip has no
+source audio, PanoPilot shall preserve Project audio timing across the no-audio
+Clip by contributing silence for that Clip's active duration.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+## SYS-EXP-014 — Transactional Export Promotion
+
+PanoPilot shall replace the requested export output only after the complete MP4
+has been successfully rendered, muxed, and verified.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+## SYS-EXP-015 — Export Verification
+
+Before reporting export completion, PanoPilot shall verify H.264 video codec,
+Output Profile geometry, expected audio presence, and output duration against
+the generated Project frame plan.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+## 23.1 Implementation Status Through 0.20
+
+The executable implementation now covers the functional scope of SYS-EXP-001
+through SYS-EXP-015. User-media acceptance remains required for final quality,
+performance, and real-world A/V synchronization validation on representative
+OSV Projects.

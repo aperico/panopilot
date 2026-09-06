@@ -1,0 +1,21 @@
+usage: panopilot project-edit [-h] [--project PROJECT]
+                              [--view-long-edge VIEW_LONG_EDGE]
+                              [--preview-fps PREVIEW_FPS]
+                              [--cache-dir CACHE_DIR] [--rebuild-preview]
+                              [--no-playback-audio]
+                              [sources ...]
+
+positional arguments:
+  sources               Optional OSV recordings to import in the given order;
+                        additional recordings can be added in the GUI
+
+options:
+  -h, --help            show this help message and exit
+  --project PROJECT     PanoPilot project JSON path
+  --view-long-edge VIEW_LONG_EDGE
+                        Clip-editor preview long edge (default: 800)
+  --preview-fps PREVIEW_FPS
+                        Prepared panoramic preview frame rate (default: 20)
+  --cache-dir CACHE_DIR
+  --rebuild-preview
+  --no-playback-audio

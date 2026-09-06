@@ -15,11 +15,16 @@ from .factory import FactoryCalibratedMapper, load_calibration
 from .pipeline import stitch_osv_frame
 from .preview import render_preview
 from .path_render import render_project_view_at
-from .project import load_project
+from .project import load_project, resolve_project_clip
+from .project_editor import run_project_editor
+from .project_player import run_project_preview
+from .project_export import export_project_video
+from .loading import run_with_loading_screen
 from .reframe import reframe_osv_frame
 from .sweep import render_imu_offset_sweep
 from .source import audio_streams, lens_streams, probe_source
 from .view_path import evaluate_clip_view_path
+from .timeline import build_project_timeline, project_duration
 
 
 def _cmd_stitch(args):
@@ -264,15 +269,24 @@ def _cmd_explore(args):
         audio_enabled=not args.no_playback_audio,
     )
 
-    if result["explore_state"]["last_commit"] is None:
-        print("Explore ended. No Camera Position was committed.")
-    else:
+    state = result["explore_state"]
+
+    if state.get("project_dirty"):
+        print(
+            "Editor ended with unsaved in-memory project changes."
+        )
+    elif state.get("saved_this_session"):
         print(
             f"Project saved: {result['project_path']} | "
             f"Camera Positions: {result['camera_position_count']}"
         )
+    else:
+        print(
+            f"Editor ended cleanly | "
+            f"Camera Positions: {result['camera_position_count']}"
+        )
 
-    print(json.dumps(result["explore_state"], indent=2))
+    print(json.dumps(state, indent=2))
 
 
 
@@ -304,6 +318,203 @@ def _cmd_prepare_preview(args):
 
     print(json.dumps(entry.to_dict(), indent=2))
 
+
+def _cmd_project_edit(args):
+    pending_sources = list(
+        args.sources
+    )
+
+    while True:
+        action = run_project_editor(
+            args.project,
+            import_sources=pending_sources,
+        )
+        pending_sources = []
+
+        action_name = action.get(
+            "action"
+        )
+
+        if action_name == "export":
+            output = action.get(
+                "output"
+            )
+
+            if not output:
+                raise RuntimeError(
+                    "Project editor returned export without output path"
+                )
+
+            def export_task(progress):
+                def on_progress(event):
+                    progress(
+                        event.get(
+                            "message",
+                            "Exporting Project",
+                        )
+                    )
+
+                return export_project_video(
+                    args.project,
+                    output,
+                    progress_callback=(
+                        on_progress
+                    ),
+                )
+
+            result = run_with_loading_screen(
+                export_task,
+                title="PanoPilot",
+                message="Exporting Project",
+                detail=Path(output).name,
+            )
+
+            print(
+                "Project export complete | "
+                f"{result['output']} | "
+                f"{result['encoded_duration']:.3f}s"
+            )
+            continue
+
+        if action_name == "preview":
+            result = run_project_preview(
+                args.project,
+                view_long_edge=args.view_long_edge,
+                preview_fps=args.preview_fps,
+                cache_dir=args.cache_dir,
+                rebuild_preview=args.rebuild_preview,
+                audio_enabled=not args.no_playback_audio,
+            )
+
+            print(
+                "Project preview closed | "
+                f"Time: {result['project_time']:.3f}s / "
+                f"{result['project_duration']:.3f}s"
+            )
+            continue
+
+        if action_name != "edit":
+            print(
+                f"Project editor closed | "
+                f"Clips: {action.get('clip_count', 0)}"
+            )
+            return
+
+        project = load_project(
+            args.project
+        )
+        clip = project.clip_for_id(
+            action["clip_id"]
+        )
+
+        if clip is None:
+            raise RuntimeError(
+                "Selected Clip no longer exists in the saved project"
+            )
+
+        result = explore_osv(
+            clip.source,
+            project_path=args.project,
+            clip_id=clip.id,
+            source_time=clip.trim_in_source_time,
+            view_long_edge=args.view_long_edge,
+            preview_fps=args.preview_fps,
+            cache_dir=args.cache_dir,
+            rebuild_preview=args.rebuild_preview,
+            audio_enabled=not args.no_playback_audio,
+        )
+
+        state = result["explore_state"]
+
+        camera_count = int(
+            result["camera_position_count"]
+        )
+
+        print(
+            f"Clip editor closed | "
+            f"{clip.id} | "
+            f"Camera Positions: "
+            f"{camera_count} | "
+            f"{'Modified' if state.get('project_dirty') else 'Clean'}"
+        )
+
+        if camera_count == 0:
+            print(
+                "Note: this Clip has no saved Camera Positions; "
+                "its View Path therefore uses the default camera."
+            )
+
+
+
+
+def _cmd_project_export(args):
+    def progress(event):
+        message = event.get(
+            "message",
+            "Exporting Project",
+        )
+        print(
+            message,
+            flush=True,
+        )
+
+    result = export_project_video(
+        args.project,
+        args.output,
+        panorama_width=(
+            args.panorama_width
+        ),
+        panorama_height=(
+            args.panorama_height
+        ),
+        level_horizon=(
+            not args.no_level_horizon
+        ),
+        level_strength=(
+            args.level_strength
+        ),
+        level_smoothing_ms=(
+            args.level_smoothing_ms
+        ),
+        imu_source=args.imu_source,
+        imu_offset_ms=(
+            args.imu_offset_ms
+        ),
+        crf=args.crf,
+        preset=args.preset,
+        progress_callback=progress,
+    )
+
+    print(
+        f"Wrote: {result['output']}"
+    )
+    print(
+        json.dumps(
+            result,
+            indent=2,
+        )
+    )
+
+
+def _cmd_project_preview(args):
+    result = run_project_preview(
+        args.project,
+        view_long_edge=args.view_long_edge,
+        preview_fps=args.preview_fps,
+        cache_dir=args.cache_dir,
+        rebuild_preview=args.rebuild_preview,
+        audio_enabled=not args.no_playback_audio,
+    )
+
+    print(
+        json.dumps(
+            result,
+            indent=2,
+        )
+    )
+
+
+
 def _cmd_project_info(args):
     project = load_project(args.project)
 
@@ -314,31 +525,63 @@ def _cmd_project_info(args):
 
 
 
-def _cmd_camera_at(args):
+
+def _cmd_timeline_info(args):
     project = load_project(args.project)
-    clip = project.clip_for_source(
-        args.source,
-        create=False,
+    source_durations = {}
+
+    for clip in project.clips:
+        probe = probe_source(clip.source)
+        value = probe.get("format", {}).get("duration")
+        if value is None:
+            raise RuntimeError(
+                f"Could not determine duration for {clip.source}"
+            )
+        source_durations[clip.id] = float(value)
+
+    spans = build_project_timeline(project, source_durations)
+    print(
+        json.dumps(
+            {
+                "project": str(args.project),
+                "project_duration": project_duration(
+                    project, source_durations
+                ),
+                "clips": [span.to_dict() for span in spans],
+            },
+            indent=2,
+        )
     )
 
-    if clip is None:
-        raise ValueError(
-            f"Project has no Clip for source {args.source}"
-        )
+def _cmd_camera_at(args):
+    project = load_project(args.project)
+    clip = resolve_project_clip(
+        project,
+        args.source,
+    )
 
     sample = evaluate_clip_view_path(
         clip,
         args.time,
+        interpolation=project.camera_motion_easing,
+        strength=project.camera_motion_strength,
     )
 
     print(
         json.dumps(
             {
                 "project": str(args.project),
-                "source": str(args.source),
+                "clip_id": clip.id,
+                "source": clip.source,
                 "camera_position_count": len(
                     clip.camera_positions
                 ),
+                "camera_motion": {
+                    "easing": project.camera_motion_easing,
+                    "strength": float(
+                        project.camera_motion_strength
+                    ),
+                },
                 **sample.to_dict(),
             },
             indent=2,
@@ -387,12 +630,168 @@ def build_parser():
     project_info.add_argument("project")
     project_info.set_defaults(func=_cmd_project_info)
 
+    project_edit = sub.add_parser(
+        "project-edit",
+        help="Open the multi-Clip sequential project organizer",
+    )
+    project_edit.add_argument(
+        "sources",
+        nargs="*",
+        help=(
+            "Optional OSV recordings to import in the given order; "
+            "additional recordings can be added in the GUI"
+        ),
+    )
+    project_edit.add_argument(
+        "--project",
+        default="results/panopilot_project.json",
+        help="PanoPilot project JSON path",
+    )
+    project_edit.add_argument(
+        "--view-long-edge",
+        type=int,
+        default=800,
+        help="Clip-editor preview long edge (default: 800)",
+    )
+    project_edit.add_argument(
+        "--preview-fps",
+        type=float,
+        default=20.0,
+        help="Prepared panoramic preview frame rate (default: 20)",
+    )
+    project_edit.add_argument(
+        "--cache-dir",
+        default=None,
+    )
+    project_edit.add_argument(
+        "--rebuild-preview",
+        action="store_true",
+    )
+    project_edit.add_argument(
+        "--no-playback-audio",
+        action="store_true",
+    )
+    project_edit.set_defaults(
+        func=_cmd_project_edit
+    )
+
+    project_export = sub.add_parser(
+        "project-export",
+        help="Render the complete Project from original OSV sources to H.264 MP4",
+    )
+    project_export.add_argument(
+        "project",
+        help="PanoPilot project JSON path",
+    )
+    project_export.add_argument(
+        "-o",
+        "--output",
+        default="results/panopilot_export.mp4",
+        help="Final H.264 MP4 output path",
+    )
+    project_export.add_argument(
+        "--panorama-width",
+        type=int,
+        default=3840,
+        help="Internal final panoramic width (default: 3840)",
+    )
+    project_export.add_argument(
+        "--panorama-height",
+        type=int,
+        default=1920,
+        help="Internal final panoramic height (default: 1920)",
+    )
+    project_export.add_argument(
+        "--no-level-horizon",
+        action="store_true",
+    )
+    project_export.add_argument(
+        "--level-strength",
+        type=float,
+        default=1.0,
+    )
+    project_export.add_argument(
+        "--level-smoothing-ms",
+        type=float,
+        default=100.0,
+    )
+    project_export.add_argument(
+        "--imu-source",
+        choices=("highrate", "perframe"),
+        default="highrate",
+    )
+    project_export.add_argument(
+        "--imu-offset-ms",
+        type=float,
+        default=0.0,
+    )
+    project_export.add_argument(
+        "--crf",
+        type=int,
+        default=18,
+        help="libx264 quality (default: 18)",
+    )
+    project_export.add_argument(
+        "--preset",
+        default="medium",
+        help="libx264 preset (default: medium)",
+    )
+    project_export.set_defaults(
+        func=_cmd_project_export
+    )
+
+    project_preview = sub.add_parser(
+        "project-preview",
+        help="Preview the complete sequential Project Timeline",
+    )
+    project_preview.add_argument(
+        "project",
+        help="PanoPilot project JSON path",
+    )
+    project_preview.add_argument(
+        "--view-long-edge",
+        type=int,
+        default=960,
+        help="Conventional preview long edge (default: 960)",
+    )
+    project_preview.add_argument(
+        "--preview-fps",
+        type=float,
+        default=20.0,
+        help="Panoramic editing preview frame rate (default: 20)",
+    )
+    project_preview.add_argument(
+        "--cache-dir",
+        default=None,
+    )
+    project_preview.add_argument(
+        "--rebuild-preview",
+        action="store_true",
+    )
+    project_preview.add_argument(
+        "--no-playback-audio",
+        action="store_true",
+    )
+    project_preview.set_defaults(
+        func=_cmd_project_preview
+    )
+
+    timeline_info = sub.add_parser(
+        "timeline-info",
+        help="Show sequential Clip spans after applying each Clip trim",
+    )
+    timeline_info.add_argument("project")
+    timeline_info.set_defaults(func=_cmd_timeline_info)
+
     camera_at = sub.add_parser(
         "camera-at",
         help="Evaluate the persisted View Path at one Source Time",
     )
     camera_at.add_argument("project")
-    camera_at.add_argument("source")
+    camera_at.add_argument(
+        "source",
+        help="Clip id or source path",
+    )
     camera_at.add_argument(
         "--time",
         type=float,
@@ -405,7 +804,10 @@ def build_parser():
         help="Render one conventional frame using the persisted View Path",
     )
     reframe_path.add_argument("project")
-    reframe_path.add_argument("source")
+    reframe_path.add_argument(
+        "source",
+        help="Clip id or source path",
+    )
     reframe_path.add_argument(
         "--time",
         type=float,
@@ -609,8 +1011,8 @@ def build_parser():
     explore.add_argument(
         "--time",
         type=float,
-        default=2.0,
-        help="Source Time to prepare for exploration (default: 2.0)",
+        default=None,
+        help="Initial Source Time; default starts at the Clip In point",
     )
     explore.add_argument(
         "--yaw",

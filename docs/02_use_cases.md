@@ -1,7 +1,7 @@
 # PanoPilot — Use Cases
 
 Status: Draft  
-Baseline: UC-0.4  
+Baseline: UC-0.6  
 Scope: Iteration 1  
 Parent: `01_system_definition.md`  
 Requirements: `03_system_requirements.md`
@@ -646,3 +646,81 @@ Verify source identities and restored edit
   ↓
 Export MP4
 ```
+
+
+---
+
+# 20. Use-Case Clarifications — PanoPilot 0.19
+
+## UC-07 Clarification — Set Camera and Camera Motion
+
+The explicit View Path edit action is **Set Camera**.
+
+1. The User explores the panoramic scene.
+2. Exploration alone does not modify the Project.
+3. The User invokes Set Camera.
+4. PanoPilot creates or updates a Camera Position at the current Source Time.
+5. The Camera Position is made durable through atomic Project save.
+6. Between Camera Positions, PanoPilot evaluates the configured Project Camera
+   Motion preset and Amount.
+7. The User may change Camera Motion and immediately preview the resulting View
+   Path.
+8. Camera Motion changes participate in Undo/Redo and normal Project Save
+   semantics.
+
+When a Clip has zero Camera Positions, the Clip View Path evaluates to the
+default camera. A manually explored camera may be previewed transiently without
+creating an edit.
+
+## UC-09 Clarification — Project Preview
+
+Current Project Preview flow:
+
+1. The User invokes Preview Project from the Project Organizer, or runs
+   `panopilot project-preview`.
+2. If Project edits are unsaved, PanoPilot requires an explicit Save before
+   opening the read-only Project preview.
+3. PanoPilot ensures a disposable panoramic preview exists for each Clip.
+4. PanoPilot displays a Project Timeline playhead.
+5. Project Time is mapped to the active Clip and Source Time.
+6. The active Clip's trim, View Path, Project Camera Motion, and Output Frame
+   aspect are applied.
+7. When source audio is available, corresponding audio for the active Clip is
+   played.
+8. At Clip Out, playback changes to the next Clip in Project order.
+9. At Project end, playback stops.
+10. If the User presses Play at Project end, playback restarts from Project
+    Time zero.
+11. The User may pause or seek anywhere on the Project Timeline.
+12. Closing Project Preview returns to the Project Organizer.
+
+Project Preview is non-authoritative: it creates no editing state.
+
+
+---
+
+# 21. UC-13 Implementation Clarification — Final Project Export
+
+Current final export flow:
+
+1. The User invokes Export Project in the Project Organizer or runs
+   `panopilot project-export`.
+2. PanoPilot requires saved Project state before export begins.
+3. The User selects one MP4 destination.
+4. PanoPilot verifies that every referenced original Source Recording exists.
+5. PanoPilot resolves the Project Output Profile from the saved aspect.
+6. PanoPilot builds the ordered Project Timeline and one global CFR frame plan.
+7. For each active Clip, PanoPilot decodes the original synchronized OSV lens
+   streams, applies DJI factory calibration, horizon correction, the Clip View
+   Path, Project Camera Motion, and Output Profile geometry.
+8. PanoPilot encodes all resulting frames as one continuous H.264 video stream.
+9. PanoPilot assembles corresponding source audio trims in Project order.
+10. PanoPilot inserts silence for a no-audio Clip only when other Project Clips
+    contain audio and Timeline continuity must be preserved.
+11. PanoPilot muxes the final video and audio into MP4.
+12. PanoPilot verifies the resulting codec, geometry, expected audio presence,
+    frame count when available, duration, and A/V stream-duration delta.
+13. Only after verification does PanoPilot replace the requested output path.
+14. PanoPilot reports export completion.
+
+Failure before step 13 leaves any pre-existing requested output unchanged.

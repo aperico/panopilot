@@ -1,29 +1,41 @@
 """
-Minimal non-destructive PanoPilot project model for Iteration 1.
+PanoPilot project model.
 
-0.12 introduces only the persistence needed to prove the critical UX boundary:
+Project schema v3 adds persisted Camera Motion easing settings while
+preserving the schema-v2 continuous trim range per Clip and
+preserving the fundamental reframing invariant:
 
-    Explore freely
-        ↓
-    explicit "Use this view"
-        ↓
-    persisted Camera Position
+    Camera Position source_time is authoritative.
+    Changing Clip trim never retimes Camera Positions.
 
-Exploratory camera movement never mutates this model.
+A Camera Position outside the active trim remains persisted and becomes
+dormant. Expanding the trim later can make it active again.
 
-The current JSON representation is an internal prototype format. It is not yet
-declared a stable public interchange format.
+Schema v1/v2 projects are upgraded in memory automatically and are written as v3
+on their next explicit Save.
 """
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import json
+import re
 from pathlib import Path
 from typing import Optional
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
+SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3)
 TIME_MATCH_TOLERANCE_S = 1e-6
+
+CAMERA_MOTION_EASINGS = (
+    "smooth",
+    "ease-in-out",
+    "ease-in",
+    "ease-out",
+    "linear",
+)
+DEFAULT_CAMERA_MOTION_EASING = "smooth"
+DEFAULT_CAMERA_MOTION_STRENGTH = 1.0
 
 
 @dataclass
@@ -51,35 +63,93 @@ class Clip:
     id: str
     source: str
     camera_positions: list[CameraPosition] = field(default_factory=list)
+    trim_in_source_time: float = 0.0
+    trim_out_source_time: Optional[float] = None
+
+    def __post_init__(self):
+        self.trim_in_source_time = float(self.trim_in_source_time)
+        if self.trim_in_source_time < 0.0:
+            raise ValueError("Clip trim In must be >= 0")
+
+        if self.trim_out_source_time is not None:
+            self.trim_out_source_time = float(self.trim_out_source_time)
+            if self.trim_out_source_time <= self.trim_in_source_time:
+                raise ValueError("Clip trim Out must be greater than trim In")
+
+        self.sort_positions()
+
+    @property
+    def has_default_trim(self):
+        return (
+            abs(self.trim_in_source_time) <= TIME_MATCH_TOLERANCE_S
+            and self.trim_out_source_time is None
+        )
 
     def sort_positions(self):
-        self.camera_positions.sort(key=lambda position: position.source_time)
+        self.camera_positions.sort(key=lambda p: p.source_time)
 
     def position_at(self, source_time: float) -> Optional[CameraPosition]:
         target = float(source_time)
-
         for position in self.camera_positions:
             if abs(position.source_time - target) <= TIME_MATCH_TOLERANCE_S:
                 return position
-
         return None
 
-    def upsert_camera_position(
-        self,
-        source_time: float,
-        yaw_deg: float,
-        pitch_deg: float,
-        fov_deg: float,
-    ):
-        """
-        Create or update the Camera Position at this source-media moment.
+    def resolved_trim_out(self, source_duration):
+        source_duration = float(source_duration)
+        if source_duration <= 0.0:
+            raise ValueError("source_duration must be greater than zero")
 
-        This is intentionally an upsert: repeatedly choosing "Use this view" at
-        the same moment updates that committed view instead of creating
-        ambiguous duplicate keyframes.
-        """
+        out_time = (
+            source_duration
+            if self.trim_out_source_time is None
+            else float(self.trim_out_source_time)
+        )
+
+        if out_time > source_duration + TIME_MATCH_TOLERANCE_S:
+            raise ValueError("Clip trim Out exceeds current source duration")
+        if out_time - self.trim_in_source_time <= TIME_MATCH_TOLERANCE_S:
+            raise ValueError("Clip active trim must have positive duration")
+
+        return min(out_time, source_duration)
+
+    def resolved_trim_bounds(self, source_duration):
+        return float(self.trim_in_source_time), self.resolved_trim_out(source_duration)
+
+    def clip_duration(self, source_duration):
+        start, end = self.resolved_trim_bounds(source_duration)
+        return end - start
+
+    def source_to_clip_time(self, source_time):
+        return float(source_time) - float(self.trim_in_source_time)
+
+    def clip_to_source_time(self, clip_time):
+        return float(self.trim_in_source_time) + float(clip_time)
+
+    def is_source_time_active(self, source_time, *, source_duration=None):
+        value = float(source_time)
+        if value < self.trim_in_source_time - TIME_MATCH_TOLERANCE_S:
+            return False
+        if self.trim_out_source_time is not None:
+            return value <= self.trim_out_source_time + TIME_MATCH_TOLERANCE_S
+        if source_duration is not None:
+            return value <= float(source_duration) + TIME_MATCH_TOLERANCE_S
+        return True
+
+    def active_camera_positions(self):
+        return [
+            p for p in self.camera_positions
+            if self.is_source_time_active(p.source_time)
+        ]
+
+    def dormant_camera_positions(self):
+        return [
+            p for p in self.camera_positions
+            if not self.is_source_time_active(p.source_time)
+        ]
+
+    def upsert_camera_position(self, source_time, yaw_deg, pitch_deg, fov_deg):
         existing = self.position_at(source_time)
-
         if existing is None:
             position = CameraPosition(
                 source_time=float(source_time),
@@ -96,46 +166,127 @@ class Clip:
             existing.fov_deg = float(fov_deg)
             position = existing
             created = False
-
         return position, created
 
     def to_dict(self):
         self.sort_positions()
-
         return {
             "id": self.id,
             "source": self.source,
-            "camera_positions": [
-                position.to_dict()
-                for position in self.camera_positions
-            ],
+            "trim": {
+                "in_source_time": float(self.trim_in_source_time),
+                "out_source_time": (
+                    float(self.trim_out_source_time)
+                    if self.trim_out_source_time is not None
+                    else None
+                ),
+            },
+            "camera_positions": [p.to_dict() for p in self.camera_positions],
         }
 
     @classmethod
     def from_dict(cls, data):
-        clip = cls(
+        trim = data.get("trim") or {}
+        return cls(
             id=str(data["id"]),
             source=str(data["source"]),
+            trim_in_source_time=float(trim.get("in_source_time", 0.0)),
+            trim_out_source_time=(
+                float(trim["out_source_time"])
+                if trim.get("out_source_time") is not None
+                else None
+            ),
             camera_positions=[
-                CameraPosition.from_dict(position)
-                for position in data.get("camera_positions", [])
+                CameraPosition.from_dict(p)
+                for p in data.get("camera_positions", [])
             ],
         )
-        clip.sort_positions()
-        return clip
 
 
 @dataclass
 class Project:
     output_aspect: str = "16:9"
     clips: list[Clip] = field(default_factory=list)
+    camera_motion_easing: str = DEFAULT_CAMERA_MOTION_EASING
+    camera_motion_strength: float = DEFAULT_CAMERA_MOTION_STRENGTH
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self):
         if self.output_aspect not in ("16:9", "9:16"):
             raise ValueError("output_aspect must be '16:9' or '9:16'")
 
+        self.set_camera_motion(
+            easing=self.camera_motion_easing,
+            strength=self.camera_motion_strength,
+        )
+        self.schema_version = SCHEMA_VERSION
+
+    def set_camera_motion(self, *, easing=None, strength=None):
+        easing = (
+            self.camera_motion_easing
+            if easing is None
+            else str(easing)
+        )
+        strength = (
+            self.camera_motion_strength
+            if strength is None
+            else float(strength)
+        )
+
+        if easing not in CAMERA_MOTION_EASINGS:
+            raise ValueError(
+                "camera motion easing must be one of: "
+                + ", ".join(CAMERA_MOTION_EASINGS)
+            )
+
+        if not 0.0 <= strength <= 1.0:
+            raise ValueError(
+                "camera motion strength must be between 0 and 1"
+            )
+
+        self.camera_motion_easing = easing
+        self.camera_motion_strength = strength
+
+        return {
+            "easing": easing,
+            "strength": strength,
+        }
+
+    def clip_for_id(self, clip_id):
+        clip_id = str(clip_id)
+
+        for clip in self.clips:
+            if clip.id == clip_id:
+                return clip
+
+        return None
+
+    def clip_index(self, clip_id):
+        clip_id = str(clip_id)
+
+        for index, clip in enumerate(self.clips):
+            if clip.id == clip_id:
+                return index
+
+        return None
+
+    def clips_for_source(self, source):
+        source = str(source)
+
+        return [
+            clip
+            for clip in self.clips
+            if clip.source == source
+        ]
+
     def clip_for_source(self, source, *, create=False):
+        """
+        Compatibility helper returning the first Clip for a source.
+
+        0.18 deliberately keeps repeated instances of the same source out of
+        scope, so ordinary project creation still has at most one Clip per
+        source. The persistent domain model is nevertheless Clip-id based.
+        """
         source = str(source)
 
         for clip in self.clips:
@@ -145,77 +296,283 @@ class Project:
         if not create:
             return None
 
+        return self.add_clip(source)
+
+    def next_clip_id(self):
+        used = {
+            clip.id
+            for clip in self.clips
+        }
+
+        numeric = []
+
+        for clip_id in used:
+            match = re.fullmatch(
+                r"clip-(\d+)",
+                clip_id,
+            )
+
+            if match:
+                numeric.append(
+                    int(match.group(1))
+                )
+
+        candidate = (
+            max(numeric, default=0) + 1
+        )
+
+        while (
+            f"clip-{candidate}" in used
+        ):
+            candidate += 1
+
+        return f"clip-{candidate}"
+
+    def add_clip(
+        self,
+        source,
+        *,
+        allow_duplicate_source=False,
+    ):
+        source = str(source)
+
+        if (
+            not allow_duplicate_source
+            and self.clips_for_source(source)
+        ):
+            raise ValueError(
+                "This source is already present in the project. "
+                "Repeated source instances are not part of Iteration 1."
+            )
+
         clip = Clip(
-            id=f"clip-{len(self.clips) + 1}",
+            id=self.next_clip_id(),
             source=source,
         )
         self.clips.append(clip)
         return clip
 
+    def remove_clip(self, clip_id):
+        index = self.clip_index(clip_id)
+
+        if index is None:
+            return None
+
+        return self.clips.pop(index)
+
+    def move_clip(self, clip_id, new_index):
+        index = self.clip_index(clip_id)
+
+        if index is None:
+            raise ValueError(
+                f"Unknown Clip id: {clip_id}"
+            )
+
+        if not self.clips:
+            return 0
+
+        target = max(
+            0,
+            min(
+                int(new_index),
+                len(self.clips) - 1,
+            ),
+        )
+
+        if target == index:
+            return index
+
+        clip = self.clips.pop(index)
+        self.clips.insert(target, clip)
+        return target
+
     def to_dict(self):
         return {
-            "schema_version": int(self.schema_version),
-            "output_frame": {
-                "aspect": self.output_aspect,
+            "schema_version": SCHEMA_VERSION,
+            "output_frame": {"aspect": self.output_aspect},
+            "camera_motion": {
+                "easing": self.camera_motion_easing,
+                "strength": float(
+                    self.camera_motion_strength
+                ),
             },
-            "clips": [
-                clip.to_dict()
-                for clip in self.clips
-            ],
+            "clips": [clip.to_dict() for clip in self.clips],
         }
 
     @classmethod
     def from_dict(cls, data):
-        version = int(data.get("schema_version", 0))
-
-        if version != SCHEMA_VERSION:
+        version = int(data.get("schema_version", 1))
+        if version not in SUPPORTED_SCHEMA_VERSIONS:
             raise ValueError(
                 f"Unsupported project schema_version {version}; "
-                f"expected {SCHEMA_VERSION}"
+                f"supported: {SUPPORTED_SCHEMA_VERSIONS}"
             )
-
         output_frame = data.get("output_frame", {})
-        project = cls(
+        camera_motion = data.get("camera_motion") or {}
+
+        return cls(
             output_aspect=str(output_frame.get("aspect", "16:9")),
-            clips=[
-                Clip.from_dict(clip)
-                for clip in data.get("clips", [])
-            ],
-            schema_version=version,
+            clips=[Clip.from_dict(clip) for clip in data.get("clips", [])],
+            camera_motion_easing=str(
+                camera_motion.get(
+                    "easing",
+                    DEFAULT_CAMERA_MOTION_EASING,
+                )
+            ),
+            camera_motion_strength=float(
+                camera_motion.get(
+                    "strength",
+                    DEFAULT_CAMERA_MOTION_STRENGTH,
+                )
+            ),
+            schema_version=SCHEMA_VERSION,
         )
 
-        return project
+
+
+def _normalized_source_path(value):
+    """Best-effort filesystem identity used only for command resolution."""
+    try:
+        return Path(value).expanduser().resolve(strict=False)
+    except Exception:
+        return None
+
+
+def resolve_project_clip(project: Project, selector):
+    """
+    Resolve one Clip by stable Clip id first, then source identity.
+
+    Source-path matching accepts unambiguous absolute/relative aliases.
+    """
+    selector = str(selector)
+
+    clip = project.clip_for_id(selector)
+    if clip is not None:
+        return clip
+
+    exact = [
+        item
+        for item in project.clips
+        if item.source == selector
+    ]
+
+    if len(exact) == 1:
+        return exact[0]
+
+    if len(exact) > 1:
+        raise ValueError(
+            f"Selector {selector!r} matches multiple Clips; use a Clip id"
+        )
+
+    target = _normalized_source_path(selector)
+
+    if target is not None:
+        matches = []
+
+        for item in project.clips:
+            candidate = _normalized_source_path(
+                item.source
+            )
+
+            if candidate == target:
+                matches.append(item)
+
+        if len(matches) == 1:
+            return matches[0]
+
+        if len(matches) > 1:
+            raise ValueError(
+                f"Source path {selector!r} matches multiple Clips; use a Clip id"
+            )
+
+    available = ", ".join(
+        f"{item.id}={item.source}"
+        for item in project.clips
+    ) or "(project has no Clips)"
+
+    raise ValueError(
+        f"Project has no Clip matching {selector!r}. "
+        f"Available Clips: {available}"
+    )
+
+
+def commit_camera_position_to_clip(
+    project: Project,
+    clip_id,
+    *,
+    source_time,
+    yaw_deg,
+    pitch_deg,
+    fov_deg,
+    output_aspect=None,
+):
+    """Commit a Camera Position to one exact Clip instance."""
+    clip = project.clip_for_id(
+        str(clip_id)
+    )
+
+    if clip is None:
+        raise ValueError(
+            f"Unknown Clip id: {clip_id}"
+        )
+
+    position, created = (
+        clip.upsert_camera_position(
+            source_time=source_time,
+            yaw_deg=yaw_deg,
+            pitch_deg=pitch_deg,
+            fov_deg=fov_deg,
+        )
+    )
+
+    if output_aspect is not None:
+        if output_aspect not in (
+            "16:9",
+            "9:16",
+        ):
+            raise ValueError(
+                "output_aspect must be '16:9' or '9:16'"
+            )
+        project.output_aspect = (
+            output_aspect
+        )
+
+    index = clip.camera_positions.index(
+        position
+    )
+
+    return {
+        "created": bool(created),
+        "clip_id": clip.id,
+        "position_index": index,
+        "position_number": index + 1,
+        "camera_position": (
+            position.to_dict()
+        ),
+        "active_in_trim": (
+            clip.is_source_time_active(
+                position.source_time
+            )
+        ),
+    }
 
 
 def load_project(path, *, default_aspect="16:9"):
     path = Path(path)
-
     if not path.exists():
         return Project(output_aspect=default_aspect)
-
-    return Project.from_dict(
-        json.loads(path.read_text(encoding="utf-8"))
-    )
+    return Project.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
 
 def save_project(project: Project, path):
-    """
-    Atomically persist the project.
-
-    Source recordings are never modified.
-    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-
     temporary = path.with_name(path.name + ".tmp")
-
     temporary.write_text(
         json.dumps(project.to_dict(), indent=2) + "\n",
         encoding="utf-8",
     )
-
     temporary.replace(path)
-
     return path
 
 
@@ -229,26 +586,17 @@ def commit_camera_position(
     fov_deg,
     output_aspect=None,
 ):
-    clip = project.clip_for_source(source, create=True)
+    clip = project.clip_for_source(
+        source,
+        create=True,
+    )
 
-    position, created = clip.upsert_camera_position(
+    return commit_camera_position_to_clip(
+        project,
+        clip.id,
         source_time=source_time,
         yaw_deg=yaw_deg,
         pitch_deg=pitch_deg,
         fov_deg=fov_deg,
+        output_aspect=output_aspect,
     )
-
-    if output_aspect is not None:
-        if output_aspect not in ("16:9", "9:16"):
-            raise ValueError("output_aspect must be '16:9' or '9:16'")
-        project.output_aspect = output_aspect
-
-    index = clip.camera_positions.index(position)
-
-    return {
-        "created": bool(created),
-        "clip_id": clip.id,
-        "position_index": index,
-        "position_number": index + 1,
-        "camera_position": position.to_dict(),
-    }

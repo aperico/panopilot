@@ -1,1 +1,1 @@
-PanoPilot 0.15.0
+PanoPilot 0.20.0

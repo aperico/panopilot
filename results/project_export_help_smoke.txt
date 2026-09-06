@@ -1,0 +1,28 @@
+usage: panopilot project-export [-h] [-o OUTPUT]
+                                [--panorama-width PANORAMA_WIDTH]
+                                [--panorama-height PANORAMA_HEIGHT]
+                                [--no-level-horizon]
+                                [--level-strength LEVEL_STRENGTH]
+                                [--level-smoothing-ms LEVEL_SMOOTHING_MS]
+                                [--imu-source {highrate,perframe}]
+                                [--imu-offset-ms IMU_OFFSET_MS] [--crf CRF]
+                                [--preset PRESET]
+                                project
+
+positional arguments:
+  project               PanoPilot project JSON path
+
+options:
+  -h, --help            show this help message and exit
+  -o, --output OUTPUT   Final H.264 MP4 output path
+  --panorama-width PANORAMA_WIDTH
+                        Internal final panoramic width (default: 3840)
+  --panorama-height PANORAMA_HEIGHT
+                        Internal final panoramic height (default: 1920)
+  --no-level-horizon
+  --level-strength LEVEL_STRENGTH
+  --level-smoothing-ms LEVEL_SMOOTHING_MS
+  --imu-source {highrate,perframe}
+  --imu-offset-ms IMU_OFFSET_MS
+  --crf CRF             libx264 quality (default: 18)
+  --preset PRESET       libx264 preset (default: medium)

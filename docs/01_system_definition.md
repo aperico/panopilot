@@ -1,7 +1,7 @@
 # PanoPilot — System Definition
 
 Status: Draft  
-Baseline: SD-0.5  
+Baseline: SD-0.7  
 Scope: Iteration 1
 
 ---
@@ -839,3 +839,151 @@ without manually:
 - entering media-processing commands;
 - configuring projection filters;
 - entering numerical camera orientation values.
+
+
+---
+
+# 18. Iteration-1 Implementation Alignment — PanoPilot 0.19
+
+The following domain behavior is now validated in the executable prototype.
+
+## 18.1 Desktop Editing Structure
+
+PanoPilot currently exposes two editing scales:
+
+```text
+Project Organizer
+    ordered Clips
+    add / remove / reorder
+    Project Preview
+        ↓
+Clip Editor
+    trim
+    Camera Positions
+    View Path
+    Camera Motion
+```
+
+The Project Organizer and Clip Editor use stable Clip identity. Source Recording
+path is media identity/reference information; it is not the ownership key for a
+Clip's View Path.
+
+## 18.2 Camera Position Persistence
+
+The User action **Set Camera** creates or updates a Camera Position at the
+current authoritative Source Time.
+
+In the desktop workflow, Set Camera is an explicit persistence boundary and the
+Camera Position is atomically saved immediately.
+
+Exploratory camera movement remains transient and does not modify Project state.
+
+## 18.3 Camera Motion
+
+A Project owns one Camera Motion configuration used when evaluating View Paths.
+
+Iteration-1 configurable easing presets are:
+
+- Smooth;
+- Ease In + Out;
+- Ease In;
+- Ease Out;
+- Linear.
+
+The Project also stores a normalized Amount from `0.0` to `1.0`.
+
+`0.0` produces linear segment timing. `1.0` applies the selected easing curve
+fully. Intermediate values blend linear timing with the selected easing.
+
+This setting applies consistently to Clip preview, Project preview, diagnostic
+View Path evaluation, and project-aware frame rendering.
+
+## 18.4 Project Preview
+
+Project Preview is a read-only evaluation of the complete ordered Project
+Timeline.
+
+```text
+Project Time
+    ↓
+Active Clip Instance
+    ↓
+Source Time
+    ↓
+Panoramic Preview + View Path
+    ↓
+Conventional Preview Frame + Source Audio
+```
+
+At Clip Out, Project preview advances to the next Clip according to Project
+Timeline order.
+
+At Project end, pressing Play again restarts from Project Time zero.
+
+Preview media remains derived and disposable. The original OSV remains the
+authoritative source for final rendering.
+
+
+---
+
+# 19. Iteration-1 Final Export Realization — PanoPilot 0.20
+
+PanoPilot now realizes the complete Iteration-1 delivery pipeline:
+
+```text
+Original OSV Source Recordings
+    ↓
+Clip trim in Source Time
+    ↓
+DJI factory-calibrated panoramic reconstruction
+    + DJI IMU horizon correction
+    ↓
+Clip View Path
+    + Project Camera Motion
+    ↓
+Project Output Profile
+    ↓
+ordered conventional video frames
+    + ordered source audio
+    ↓
+H.264 MP4
+```
+
+## 19.1 Iteration-1 Output Profile Policy
+
+`OUTPUT-PROFILE-001` is resolved as:
+
+```text
+16:9  → 1920 × 1080 @ 30 fps
+9:16  → 1080 × 1920 @ 30 fps
+```
+
+Width, height, and frame rate are automatic policy derived from the saved
+Project aspect ratio. The User interface therefore does not require additional
+resolution/FPS controls in Iteration 1.
+
+## 19.2 Final Source Authority
+
+Final export reconstructs image content from original OSV lens streams and DJI
+metadata. The disposable panoramic editing cache is not used as an export image
+source.
+
+## 19.3 Project Frame Clock
+
+Final export uses one continuous constant-frame-rate Project clock. Frames are
+allocated globally across the Project Timeline before rendering Clips. This
+prevents independent per-Clip frame rounding from accumulating duration drift.
+
+## 19.4 Audio
+
+When at least one Clip contains source audio, PanoPilot produces one continuous
+Project audio stream in Timeline order. A Clip with no audio contributes silence
+for its active duration so later Clip audio remains aligned to Project Time.
+
+When no Clip contains source audio, the exported Project is video-only.
+
+## 19.5 Transactional Completion
+
+PanoPilot does not replace the requested output with an incomplete render.
+Export is first written to a preparing artifact, probed and verified, and only
+then atomically promoted to the requested MP4 path.

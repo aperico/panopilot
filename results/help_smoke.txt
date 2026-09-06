@@ -1,0 +1,35 @@
+usage: panopilot [-h] [--version]
+                 {project-info,timeline-info,camera-at,reframe-path,prepare-preview,inspect,imu,stitch,reframe,explore,preview,imu-sweep,extract-calibration,stitch-lenses} ...
+
+PanoPilot panoramic-video reframing prototype
+
+positional arguments:
+  {project-info,timeline-info,camera-at,reframe-path,prepare-preview,inspect,imu,stitch,reframe,explore,preview,imu-sweep,extract-calibration,stitch-lenses}
+    project-info        Show the current prototype project and committed
+                        Camera Positions
+    timeline-info       Show sequential Clip spans after applying each Clip
+                        trim
+    camera-at           Evaluate the persisted View Path at one Source Time
+    reframe-path        Render one conventional frame using the persisted View
+                        Path
+    prepare-preview     Prepare the disposable panoramic editing
+                        representation
+    inspect             Inspect an OSV and its DJI calibration metadata
+    imu                 Inspect DJI orientation telemetry in an OSV
+    stitch              Create a factory-calibrated equirectangular frame
+                        directly from an OSV
+    reframe             Render a conventional rectilinear Virtual Camera frame
+                        from an OSV
+    explore             Open a local interactive Virtual Camera explorer for
+                        one OSV frame
+    preview             Render a short stitched panoramic preview video from
+                        an OSV
+    imu-sweep           Render a diagnostic sweep of IMU/video timing offsets
+    extract-calibration
+                        Debug operation: extract DJI factory calibration from
+                        an OSV
+    stitch-lenses       Debug operation: stitch two extracted lens images
+
+options:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit

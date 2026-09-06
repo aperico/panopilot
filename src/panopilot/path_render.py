@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .project import load_project
+from .project import load_project, resolve_project_clip
 from .reframe import reframe_osv_frame
 from .view_path import evaluate_clip_view_path
 
@@ -36,19 +36,19 @@ def render_project_view_at(
         )
 
     project = load_project(project_path)
-    clip = project.clip_for_source(
-        str(source),
-        create=False,
+    clip = resolve_project_clip(
+        project,
+        source,
     )
 
-    if clip is None:
-        raise ValueError(
-            f"Project has no Clip for source {source}"
-        )
+    # The selected Clip owns the authoritative source reference.
+    source = clip.source
 
     sample = evaluate_clip_view_path(
         clip,
         source_time,
+        interpolation=project.camera_motion_easing,
+        strength=project.camera_motion_strength,
     )
 
     camera = sample.camera
@@ -72,9 +72,17 @@ def render_project_view_at(
     )
 
     result["project"] = str(project_path)
+    result["clip_id"] = clip.id
+    result["source"] = clip.source
     result["view_path"] = sample.to_dict()
     result["camera_position_count"] = len(
         clip.camera_positions
     )
+    result["camera_motion"] = {
+        "easing": project.camera_motion_easing,
+        "strength": float(
+            project.camera_motion_strength
+        ),
+    }
 
     return result

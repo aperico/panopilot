@@ -1,7 +1,7 @@
 # PanoPilot — Functional Architecture
 
 Status: Draft  
-Baseline: FA-0.1  
+Baseline: FA-0.4  
 Scope: Iteration 1  
 Parent: `01_system_definition.md`  
 Use Cases: `02_use_cases.md`  
@@ -14,119 +14,117 @@ Requirements: `03_system_requirements.md`
 This document defines the functional architecture for the first usable
 iteration of PanoPilot.
 
-PanoPilot is a desktop application focused on reframing 360-degree panoramic
-video into conventional video.
+It defines:
 
-This document defines:
+- architecture concerns;
+- logical functional decomposition;
+- domain ownership;
+- time and state semantics;
+- logical interfaces;
+- quality-attribute scenarios;
+- architecture decisions and invariants;
+- architecture-driving risks;
+- technical spikes and verification assets.
 
-- the logical system functions;
-- the responsibilities of each function;
-- the principal domain entities;
-- the information exchanged between functions;
-- the functional behavior needed to satisfy the Iteration 1 use cases and
-  system requirements.
-
-This document intentionally does **not** select:
+It intentionally does **not** select:
 
 - programming languages;
-- UI frameworks;
-- desktop shell technology;
-- media-processing libraries;
+- desktop/UI frameworks;
+- process/thread boundaries;
 - GPU APIs;
-- process boundaries;
-- deployment packaging.
+- media libraries;
+- packaging technology.
 
-Those decisions belong to software architecture after the architecture-driving
-technical risks have been demonstrated.
-
----
-
-# 2. Architecture Objective
-
-The functional architecture shall support the minimum complete PanoPilot
-workflow:
-
-```text
-Create Project
-      ↓
-Add panoramic recordings
-      ↓
-Prepare panoramic previews
-      ↓
-Arrange and trim Clips
-      ↓
-Explore panoramic scene
-      ↓
-Define Camera Positions
-      ↓
-Generate View Path
-      ↓
-Preview Clip / Project
-      ↓
-Save and reopen Project
-      ↓
-Render final conventional video
-```
-
-The architecture shall remain focused on panoramic reframing.
-
-It shall not introduce general-purpose nonlinear-editor functions that are not
-required by Iteration 1.
+Those choices belong to software architecture after the architecture-driving
+technical spikes provide evidence.
 
 ---
 
-# 3. First-Principles Functional Model
+# 2. Architecture Concerns
 
-PanoPilot can be reduced to five fundamental transformations.
+The functional architecture addresses the following concerns.
 
-## 3.1 Source Recording → Panoramic Scene
+| Concern | Architectural Response |
+|---|---|
+| Panoramic-source variability | Isolate source-specific behavior behind a Panoramic Source Port |
+| Interactive performance | Separate preview media from final-quality media and coordinate background work |
+| Editing correctness | Keep source immutable and editing state explicit |
+| Trim/reframe stability | Anchor Camera Positions to Source Time |
+| Preview/export consistency | One canonical Camera/ViewPath semantic core |
+| Multi-clip correctness | Separate Project Time, Clip Time, and Source Time |
+| Persistence safety | Versioned Project state, Source Identity, safe save semantics |
+| Maintainability | Keep Editing Domain independent of DJI/FFmpeg/UI technology |
+| Undo usability | Treat continuous editing gestures as transactions |
+| Output determinism | Define one Project Output Profile |
 
-The system interprets a supported camera recording and produces a usable
-360-degree representation.
+---
+
+# 3. Architectural Viewpoints
+
+This document uses four lightweight viewpoints.
+
+## 3.1 Domain View
+
+Defines Project, Clip, Source Recording, Trim, Camera Position, View Path, and
+Output Profile semantics.
+
+## 3.2 Functional View
+
+Defines logical responsibilities required to satisfy the use cases.
+
+## 3.3 Information-Flow View
+
+Defines how media time, camera state, project state, and derived media flow
+between responsibilities.
+
+## 3.4 Quality View
+
+Defines architecture-driving quality scenarios and risks.
+
+Functional Areas are **responsibilities**, not prescribed software modules.
+
+There is no requirement for a one-to-one mapping between FA identifiers and
+classes, services, processes, packages, or executables.
+
+---
+
+# 4. First-Principles Functional Model
+
+PanoPilot reduces to five primary transformations.
+
+## 4.1 Source → Panoramic Representation
 
 ```text
 Source Recording
        ↓
-Panoramic Media Interpretation
+Panoramic Source Adapter
        ↓
-Panoramic Scene
+Panoramic Video Representation
 ```
 
----
-
-## 3.2 Panoramic Scene + Camera State → Output Frame
-
-A Virtual Camera selects a conventional view from the panoramic scene.
+## 4.2 Panorama + Camera → Conventional Frame
 
 ```text
-Panoramic Scene
-      +
-Camera State
-      ↓
-Output Frame
+Panoramic Video Representation
+             +
+        Camera State
+             +
+        Output Profile
+             ↓
+        Output Frame
 ```
 
----
-
-## 3.3 Camera Positions → View Path
-
-The User defines desired camera compositions at specific clip-local times.
+## 4.3 Camera Positions → Camera State Over Time
 
 ```text
-Camera Position A
-Camera Position B
-Camera Position C
-       ↓
-View Path Evaluation
-       ↓
-Camera State at time t
+source-time Camera Positions
+             ↓
+      View Path Evaluator
+             ↓
+      CameraState(source_time)
 ```
 
----
-
-## 3.4 Source Recording + Trim + View Path → Reframed Clip
-
-A Clip references a portion of a Source Recording and applies a View Path.
+## 4.4 Source + Trim + View Path → Reframed Clip
 
 ```text
 Source Recording
@@ -134,381 +132,415 @@ Source Recording
 Trim Range
       +
 View Path
+      +
+Output Profile
       ↓
 Reframed Clip
 ```
 
----
-
-## 3.5 Ordered Reframed Clips → Project Output
-
-The Project Timeline determines the sequential order of Clips.
+## 4.5 Ordered Reframed Clips → Project Output
 
 ```text
-Reframed Clip A
-Reframed Clip B
-Reframed Clip C
-       ↓
-Project Timeline
-       ↓
+Reframed Clips
+      ↓
+Project Timeline Order
+      ↓
 Conventional Project Video
 ```
 
-These transformations form the core of the Iteration 1 architecture.
-
 ---
 
-# 4. System Functional Context
+# 5. Level-1 Functional Decomposition
 
 ```text
-                         ┌─────────────────────┐
-                         │        User         │
-                         └──────────┬──────────┘
-                                    │
-                                    │ direct interaction
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              PanoPilot                                      │
-│                                                                             │
-│  ┌───────────────┐     ┌────────────────┐     ┌─────────────────────────┐  │
-│  │ Project & Clip│     │ Timeline &     │     │ Reframing Interaction  │  │
-│  │ Management    │◄───►│ Time Mapping   │◄───►│                         │  │
-│  └──────┬────────┘     └───────┬────────┘     └──────────┬──────────────┘  │
-│         │                      │                         │                 │
-│         │                      │                         ▼                 │
-│         │              ┌───────▼────────┐      ┌──────────────────────┐  │
-│         │              │ View Path      │◄────►│ Virtual Camera       │  │
-│         │              │ Management     │      │                      │  │
-│         │              └───────┬────────┘      └──────────┬───────────┘  │
-│         │                      │                          │              │
-│         ▼                      │                          ▼              │
-│  ┌───────────────┐             │                ┌──────────────────────┐ │
-│  │ Persistence & │             │                │ Panoramic Preview    │ │
-│  │ Edit History  │             │                │ and Playback         │ │
-│  └───────────────┘             │                └──────────┬───────────┘ │
-│                                │                           │             │
-│                                │                           ▼             │
-│                       ┌────────▼──────────────────────────────────────┐  │
-│                       │ Panoramic Media Services                     │  │
-│                       │ - source inspection                          │  │
-│                       │ - panoramic reconstruction                   │  │
-│                       │ - preview preparation                        │  │
-│                       │ - source audio access                        │  │
-│                       └──────────────────┬────────────────────────────┘  │
-│                                          │                               │
-│                                          ▼                               │
-│                               ┌──────────────────────┐                   │
-│                               │ Final Render & Export│                   │
-│                               └──────────────────────┘                   │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-                         Local Source / Project / Video Files
+PanoPilot
+│
+├── A. Application / Editing Domain
+│     ├── Project
+│     ├── Clip
+│     ├── Timeline
+│     ├── Trim
+│     ├── Camera Positions
+│     ├── View Path
+│     └── Undo/Redo
+│
+├── B. Panoramic Media
+│     ├── Source Adapter
+│     ├── Source Identity
+│     ├── Preview Preparation
+│     └── Panoramic Representation
+│
+├── C. Reframing
+│     ├── Canonical Camera Model
+│     └── Direct Interaction
+│
+├── D. Playback / Work Coordination
+│     ├── Clip Playback
+│     ├── Project Playback
+│     └── Background Work Coordination
+│
+└── E. Persistence / Delivery
+      ├── Project Persistence
+      ├── Final Rendering
+      └── Export Assembly
 ```
 
 ---
 
-# 5. Functional Decomposition
-
-The Iteration 1 system is decomposed into the following logical functions.
+# 6. Level-2 Functional Areas
 
 | ID | Functional Area | Primary Responsibility |
 |---|---|---|
-| FA-01 | Application Session | Establish and maintain the active desktop editing session |
+| FA-01 | Application Session | Maintain active desktop editing session |
 | FA-02 | Project Management | Maintain Project-level state |
-| FA-03 | Source Media Management | Accept and identify supported panoramic recordings |
-| FA-04 | Clip Management | Maintain Clip instances and per-Clip state |
-| FA-05 | Timeline Management | Maintain Clip order and project/clip time mapping |
-| FA-06 | Trim Management | Maintain per-Clip source In/Out range |
-| FA-07 | Preview Preparation | Produce/select media suitable for interactive operation |
-| FA-08 | Panoramic Scene | Provide a navigable 360-degree scene |
-| FA-09 | Virtual Camera | Define the conventional view into the panoramic scene |
-| FA-10 | Reframing Interaction | Translate direct User input into temporary camera state |
-| FA-11 | Camera Position Management | Create, modify, move, and delete committed Camera Positions |
-| FA-12 | View Path Evaluation | Determine camera state over clip-local time |
-| FA-13 | Playback | Preview Clips and the complete Project with audio |
-| FA-14 | Edit History | Undo and redo supported editing operations |
-| FA-15 | Project Persistence | Save and reopen Project state |
-| FA-16 | Final Rendering | Apply trim and View Path to final-quality source media |
-| FA-17 | Export Assembly | Produce the final sequential H.264/MP4 output |
+| FA-03 | Panoramic Source Adapter | Isolate source-format-specific interpretation |
+| FA-04 | Source Identity | Determine whether referenced media is the expected source |
+| FA-05 | Clip Management | Maintain Clip instances and per-Clip ownership |
+| FA-06 | Timeline Management | Maintain Clip order and time mappings |
+| FA-07 | Trim Management | Maintain source In/Out range |
+| FA-08 | Preview Preparation | Produce/select media suitable for interaction |
+| FA-09 | Panoramic Representation | Provide spherical visual media at Source Time |
+| FA-10 | Canonical Camera Model | Define camera semantics for preview and render |
+| FA-11 | Reframing Interaction | Maintain exploratory Camera State |
+| FA-12 | Camera Position Management | Maintain committed Camera Positions |
+| FA-13 | View Path Evaluation | Compute Camera State at Source Time |
+| FA-14 | Playback | Preview Clips/Project with audio |
+| FA-15 | Edit History | Undo/Redo logical editing transactions |
+| FA-16 | Project Persistence | Save/reopen Project safely |
+| FA-17 | Work Coordination | Coordinate long-running media work |
+| FA-18 | Final Rendering | Render final-quality reframed Clips |
+| FA-19 | Export Assembly | Produce final sequential MP4 |
 
 ---
 
-# 6. FA-01 — Application Session
-
-## Responsibility
-
-Provide the functional context in which a User creates or opens a Project and
-performs editing operations.
-
-## Inputs
-
-- User launch request;
-- New Project request;
-- Open Project request.
-
-## Outputs
-
-- active Project context;
-- application state available to other functional areas.
-
-## Key Behavior
-
-The application session owns at most one active editing Project in Iteration 1.
-
-Multi-project simultaneous editing is outside scope.
-
----
-
-# 7. FA-02 — Project Management
-
-## Responsibility
-
-Maintain the top-level editing state of the current Project.
-
-## Project Contains
+# 7. Core Domain Model
 
 ```text
 Project
 ├── project_id
-├── output_frame
-├── clips[]
-└── project metadata required for persistence
-```
+├── output_profile
+├── sources[]
+└── clips[]
 
-## Responsibilities
+OutputProfile
+├── aspect_ratio
+├── width
+├── height
+└── frame_rate
 
-- create a new Project;
-- maintain Project Output Frame;
-- provide ordered access to Clip instances;
-- identify whether Project state has changed;
-- provide Project state to persistence;
-- provide Project state to playback and export.
-
-## Architectural Rule
-
-The Project contains editing metadata.
-
-It does not contain destructive modifications to Source Recordings.
-
----
-
-# 8. FA-03 — Source Media Management
-
-## Responsibility
-
-Accept local panoramic source media and expose the source information required
-by the rest of the system.
-
-## Source Recording Model
-
-```text
 SourceRecording
 ├── source_id
+├── source_identity
 ├── file_reference
 ├── duration
-├── supported_state
-├── video_media_descriptor
-├── audio_media_descriptor
-└── panoramic_metadata
-```
+└── panoramic/audio descriptors
 
-The exact internal media descriptor format is a software architecture concern.
-
-## Responsibilities
-
-- accept one or more `.OSV` file selections;
-- determine whether each selected recording is processable;
-- determine source duration;
-- expose media required for panoramic reconstruction;
-- expose available audio;
-- keep Source Recordings immutable.
-
-## Failure Isolation
-
-Failure to accept one recording shall not prevent other valid selected
-recordings from becoming usable Clips.
-
----
-
-# 9. FA-04 — Clip Management
-
-## Responsibility
-
-Represent each use of source media in the Project.
-
-## Clip Model
-
-```text
 Clip
 ├── clip_id
 ├── source_recording_id
 ├── source_in
 ├── source_out
 └── view_path
+
+ViewPath
+└── CameraPosition[]
+      ├── position_id
+      ├── source_time
+      └── camera_state
+
+CameraState
+├── orientation
+├── field_of_view
+└── horizon_orientation
 ```
 
-## Architectural Rule
-
-A Clip is not the source file.
-
-A Clip is a non-destructive Project instance that references a Source
-Recording.
-
-## Responsibilities
-
-- create Clip instances;
-- select an active Clip;
-- remove a Clip from the Project;
-- maintain Clip-local editing state;
-- preserve the Clip's state when Project order changes.
+Derived preview data is not part of authoritative Project edit state.
 
 ---
 
-# 10. FA-05 — Timeline Management
+# 8. Ownership Rules
 
-## Responsibility
+## AR-OWN-001 — Project
 
-Maintain the sequential order of Clips and map Project Time to Clip Time.
+Project owns:
 
-## Iteration 1 Timeline Model
+- Source references used by the Project;
+- Clip sequence;
+- Output Profile.
+
+## AR-OWN-002 — Source Recording
+
+SourceRecording owns media identity and immutable source metadata.
+
+It does not own editing decisions.
+
+## AR-OWN-003 — Clip
+
+Clip owns:
+
+- trim range;
+- View Path.
+
+## AR-OWN-004 — View Path
+
+ViewPath owns Camera Positions for one Clip.
+
+## AR-OWN-005 — Preview
+
+Preview data is derived from source media and owns no authoritative editing
+state.
+
+---
+
+# 9. Time Model
+
+PanoPilot distinguishes:
+
+## 9.1 Source Time
+
+Timestamp in the immutable Source Recording.
+
+## 9.2 Clip Time
+
+Displayed time relative to the current Clip In point.
 
 ```text
-[ Clip A ][ Clip B ][ Clip C ]
+clip_time = source_time - source_in
 ```
 
-The timeline is:
+## 9.3 Project Time
 
-- sequential;
-- single-track;
-- non-overlapping.
-
-## Required Time Domains
-
-The architecture shall distinguish:
-
-### Source Time
-
-Timestamp in the original Source Recording.
-
-### Clip-Local Time
-
-Time within the active Clip after applying the Clip's In point.
-
-### Project Time
-
-Time within the complete ordered Project sequence.
-
-## Mapping
-
-Conceptually:
+Time in the complete sequential Project.
 
 ```text
 Project Time
-     ↓
+      ↓
 Timeline Mapping
-     ↓
+      ↓
 Active Clip
-     +
-Clip-Local Time
-     ↓
+      ↓
+Clip Time
+      ↓
 Source Time
 ```
 
-For an unmodified-speed Clip:
+## 9.4 Camera Position Time Rule
 
-```text
-Source Time = source_in + clip_local_time
-```
+Camera Positions are stored using Source Time.
 
-## Critical Architectural Rule
+This is an architecture invariant.
 
-Camera Positions are expressed in **clip-local time**.
+Rationale:
 
-They shall not use Project Time.
-
-Therefore:
-
-```text
-[A][B][C]
-```
-
-can become:
-
-```text
-[C][A][B]
-```
-
-without modifying any Camera Position inside A, B, or C.
+- Clip reordering must not retime reframing;
+- changing `source_in` must not move a Camera Position away from the source
+  event it was created to frame;
+- trim expansion should restore previously out-of-range Camera Positions.
 
 ---
 
-# 11. FA-06 — Trim Management
+# 10. Trim Semantics
 
-## Responsibility
-
-Define the continuous source interval represented by a Clip.
-
-## Trim Model
-
-```text
-TrimRange
-├── source_in
-└── source_out
-```
-
-with:
+A Clip has one continuous Source Time interval.
 
 ```text
 0 ≤ source_in < source_out ≤ source_duration
 ```
 
-## Responsibilities
+Changing trim:
 
-- set Clip In point;
-- set Clip Out point;
-- validate the range;
-- provide effective Clip duration;
-- constrain playback;
-- constrain final rendering.
+- changes Clip duration;
+- changes Project Time offsets of subsequent Clips;
+- changes displayed Clip Time for source-anchored Camera Positions;
+- does not change Camera Position Source Time.
 
-## Iteration 1 Constraint
+A Camera Position outside the trim range:
 
-A Clip has one continuous source range.
-
-Split Clips and multiple source ranges are outside scope.
+- remains persisted;
+- remains owned by the Clip;
+- is ignored by playback/export while outside the range.
 
 ---
 
-# 12. FA-07 — Preview Preparation
+# 11. Canonical Camera Model Contract
 
-## Responsibility
+FA-10 defines one logical Camera Model consumed by both preview and final
+rendering.
 
-Ensure each supported Clip can provide sufficiently responsive media for
-interactive editing.
+The contract shall define:
 
-## Functional Model
+- panoramic reference frame;
+- axis orientation;
+- handedness;
+- zero/reference view;
+- positive rotation direction;
+- field-of-view convention;
+- horizon/roll convention;
+- unit/normalization rules;
+- panoramic seam/wrap semantics;
+- mapping from Camera State + Output Profile to Output Frame.
+
+The implementation may use quaternions, matrices, Euler angles, or another
+representation.
+
+The representation is secondary to semantic consistency.
+
+## Authoritative Evaluation Rule
+
+There shall be one authoritative logical View Path evaluator:
 
 ```text
-Source Recording
-       ↓
-Preview Preparation
-       ↓
-Preview Representation
+ViewPath + Source Time
+        ↓
+CameraState(source_time)
+        ↓
+ ┌───────────────┬───────────────┐
+ ▼               ▼               ▼
+Preview       Tests         Final Render
 ```
 
-The preview representation may be generated or selected.
+Preview and final rendering shall not define independent camera-motion
+semantics.
 
-The architecture does not prescribe whether it is:
+---
 
-- `.LRF`;
-- a generated proxy;
-- a stitched lower-resolution representation;
-- another optimized representation.
+# 12. Panoramic Source Port
 
-## Required States
+Source-format-specific behavior shall be isolated behind a logical
+Panoramic Source interface.
 
-At minimum:
+Conceptually:
+
+```text
+            PanoPilot Editing / Reframing Domain
+                         ▲
+                         │ canonical source interface
+                         │
+                 Panoramic Source Port
+                         ▲
+                         │
+                  DJI OSV Adapter
+                         ▲
+                         │
+                     .OSV media
+```
+
+A future source adapter should be able to provide the same logical
+capabilities without changing Project, Timeline, Trim, CameraPosition, or
+ViewPath semantics.
+
+The Panoramic Source Port conceptually provides:
+
+- source inspection;
+- source duration/timing;
+- panoramic calibration information;
+- source video access;
+- source audio access;
+- source identity information.
+
+The exact API belongs to software architecture.
+
+---
+
+# 13. FA-01 — Application Session
+
+Responsibilities:
+
+- create/open one active Project;
+- maintain active application context;
+- route User operations to the appropriate application/domain functions.
+
+Iteration 1 supports one active Project at a time.
+
+---
+
+# 14. FA-02 — Project Management
+
+Responsibilities:
+
+- create Project;
+- maintain Output Profile;
+- expose ordered Clips;
+- track changed/saved state;
+- provide Project state to persistence, playback, and export.
+
+---
+
+# 15. FA-03 — Panoramic Source Adapter
+
+Responsibilities:
+
+- accept candidate source files;
+- determine whether the source is supported;
+- expose panoramic/audio source information through the Panoramic Source Port;
+- isolate DJI/OSV-specific interpretation from the Editing Domain.
+
+---
+
+# 16. FA-04 — Source Identity
+
+Responsibilities:
+
+- establish expected identity for accepted source media;
+- compare a later resolved file with the expected identity;
+- distinguish missing media from mismatched media.
+
+The identity mechanism is a software-architecture decision.
+
+---
+
+# 17. FA-05 — Clip Management
+
+Responsibilities:
+
+- create Clip instances;
+- select active Clip;
+- remove Clip;
+- maintain reference to Source Recording;
+- preserve trim/View Path when timeline order changes.
+
+---
+
+# 18. FA-06 — Timeline Management
+
+Responsibilities:
+
+- maintain sequential Clip order;
+- determine Project duration;
+- map Project Time to active Clip;
+- map Project Time to Clip Time and Source Time.
+
+Iteration 1 timeline is:
+
+- single-track;
+- sequential;
+- non-overlapping.
+
+---
+
+# 19. FA-07 — Trim Management
+
+Responsibilities:
+
+- set/validate Source Time In/Out;
+- determine Clip duration;
+- constrain playback/export;
+- identify which Camera Positions are active in the current trim.
+
+Trim changes do not mutate Camera Position Source Time.
+
+---
+
+# 20. FA-08 — Preview Preparation
+
+Responsibilities:
+
+- initiate or select an interactive preview representation;
+- expose preparation state;
+- make ready Clips usable independently;
+- expose preview media to Panoramic Representation.
+
+Minimum states:
 
 ```text
 NOT_READY
@@ -517,252 +549,113 @@ READY
 FAILED
 ```
 
-## Responsibilities
-
-- initiate preparation;
-- expose preparation state;
-- allow ready Clips to remain usable while others prepare;
-- expose a ready preview representation to panoramic preview functions.
-
-## Architectural Rule
-
-Preview media is derived data.
-
-It is not the Project's source of truth.
+Preview media is derived and disposable.
 
 ---
 
-# 13. FA-08 — Panoramic Scene
+# 21. FA-09 — Panoramic Representation
 
-## Responsibility
+Responsibility:
 
-Provide a navigable 360-degree representation of the selected source frame.
+Provide spherical visual media corresponding to a Source Time.
 
-## Functional Input
+Inputs conceptually include:
 
-```text
-Source/Preview media
-+
-source timestamp
-+
-panoramic calibration/metadata
-```
+- source/preview media;
+- Source Time;
+- panoramic calibration/metadata.
 
-## Functional Output
+Output:
 
 ```text
-Panoramic Scene at time t
+Panoramic Video Representation at source_time
 ```
 
-## Responsibilities
-
-- reconstruct or expose the surrounding panoramic environment;
-- abstract raw lens imagery from the User;
-- provide panoramic scene data to the Virtual Camera.
-
-## Architecture Boundary
-
-The User interacts with a conventional framed view.
-
-The raw equirectangular or fisheye representation is not the primary editing
-surface.
+This is not 3D scene reconstruction.
 
 ---
 
-# 14. FA-09 — Virtual Camera
+# 22. FA-10 — Canonical Camera Model
 
-## Responsibility
+Responsibilities:
 
-Define the view extracted from the Panoramic Scene.
-
-## Camera State
-
-Conceptually:
-
-```text
-CameraState
-├── orientation
-├── field_of_view
-└── horizon_orientation
-```
-
-The internal representation of orientation may use:
-
-- yaw/pitch/roll;
-- quaternion;
-- rotation matrix;
-- another representation.
-
-That decision belongs to software architecture.
-
-## Functional Relationship
-
-```text
-Panoramic Scene
-      +
-Camera State
-      +
-Output Frame
-      ↓
-Conventional Frame
-```
-
-## Responsibilities
-
-- represent complete horizontal orientation;
-- represent vertical orientation;
-- represent zoom/FOV;
-- support reset/default state;
-- provide the same logical camera semantics to preview and final rendering.
+- interpret Camera State;
+- map Camera State + Output Profile to a conventional view;
+- define default/reset state;
+- provide identical logical semantics to preview and final render.
 
 ---
 
-# 15. FA-10 — Reframing Interaction
+# 23. FA-11 — Reframing Interaction
 
-## Responsibility
+Responsibilities:
 
-Translate direct User interaction into an exploratory Virtual Camera state.
+- translate mouse drag into exploratory orientation;
+- translate mouse wheel into exploratory FOV;
+- support Reset View;
+- maintain temporary Camera State.
 
-## Inputs
-
-- mouse drag;
-- mouse wheel;
-- Reset View;
-- current Virtual Camera state.
-
-## Outputs
-
-- updated exploratory Camera State.
-
-## Critical Interaction Invariant
+Invariant:
 
 ```text
-User explores panorama
-        ↓
-temporary Camera State changes
-        ↓
-View Path remains unchanged
+exploration != persisted edit
 ```
 
-Only an explicit commit operation transfers the displayed Camera State into a
-Camera Position.
-
-## Functional Model
-
-```text
-             mouse drag / zoom
-                     ↓
-            Exploratory Camera
-                     │
-                     │ explicit "Use this view"
-                     ▼
-             Camera Position
-```
-
-This separation prevents ordinary scene exploration from accidentally changing
-the final edit.
+Only explicit commit/update operations affect Camera Positions.
 
 ---
 
-# 16. FA-11 — Camera Position Management
+# 24. FA-12 — Camera Position Management
 
-## Responsibility
+Responsibilities:
 
-Maintain explicit User-defined camera states at selected clip-local times.
-
-## Camera Position Model
-
-```text
-CameraPosition
-├── position_id
-├── clip_local_time
-└── camera_state
-```
-
-## Responsibilities
-
-- create a Camera Position from the current displayed composition;
-- select a Camera Position;
-- modify its Camera State;
-- move its clip-local time;
+- create Camera Position at current Source Time;
+- select/restore a Camera Position;
+- modify Camera State;
+- move it to another Source Time;
 - delete it;
-- expose Camera Positions for timeline visualization.
-
-## Architectural Rule
-
-Camera Position state is committed editing metadata.
-
-Exploratory Camera State is not.
+- expose its derived Clip Time for timeline visualization.
 
 ---
 
-# 17. FA-12 — View Path Evaluation
+# 25. FA-13 — View Path Evaluation
 
-## Responsibility
-
-Determine the effective Virtual Camera state for any clip-local time.
-
-## Input
+Responsibility:
 
 ```text
-clip_local_time
-+
-ordered Camera Positions
+ViewPath + Source Time → CameraState(source_time)
 ```
 
-## Output
+Responsibilities:
 
-```text
-CameraState(t)
-```
+- order active Camera Positions by Source Time;
+- interpolate orientation;
+- interpolate FOV;
+- interpolate horizon orientation;
+- define behavior before/after active positions;
+- handle panoramic wrap without unintended long rotation.
 
-## Functional Behavior
-
-For time between Camera Positions:
-
-```text
-Position A                 Position B
-    ●--------------------------●
-             ↓
-        CameraState(t)
-```
-
-## Responsibilities
-
-- order Camera Positions by clip-local time;
-- determine intermediate orientation;
-- determine intermediate FOV;
-- determine intermediate horizon orientation;
-- provide deterministic state before/after defined Camera Positions;
-- handle panoramic wrap without unintended full-circle movement.
-
-## Iteration 1 Motion Model
-
-One default interpolation behavior is sufficient.
-
-Advanced easing and curve editing are outside scope.
+Iteration 1 requires one default interpolation model.
 
 ---
 
-# 18. FA-13 — Playback
-
-## Responsibility
-
-Provide audio/video preview of a Clip or complete Project.
+# 26. FA-14 — Playback
 
 ## Clip Playback
 
 ```text
-Clip-local time
-      ↓
+Clip playback position
+       ↓
 Source Time
-      ↓
-Panoramic Scene
-      +
-View Path CameraState(t)
-      ↓
+       ↓
+Panoramic Representation
+       +
+CameraState(source_time)
+       ↓
+Canonical Camera Model
+       ↓
 Output Frame
-      +
+       +
 Source Audio
 ```
 
@@ -770,139 +663,121 @@ Source Audio
 
 ```text
 Project Time
-      ↓
+    ↓
 Timeline Mapping
-      ↓
-Active Clip + Clip-Local Time
-      ↓
+    ↓
+Active Clip + Source Time
+    ↓
 Clip Playback
 ```
 
-## Responsibilities
-
-- play;
-- pause;
-- seek;
-- scrub;
-- apply trim range;
-- apply View Path;
-- present the selected Output Frame;
-- play corresponding source audio;
-- transition sequentially between Clips.
-
-## Architecture Rule
-
-Playback is a consumer of Timeline, View Path, Virtual Camera, and Media
-functions.
-
-Playback does not own the edit state.
+Playback owns no authoritative edit state.
 
 ---
 
-# 19. FA-14 — Edit History
+# 27. FA-15 — Edit History
 
-## Responsibility
+Responsibilities:
 
-Provide Undo and Redo for supported editing operations.
+- undo;
+- redo;
+- restore Project metadata state for supported editing transactions.
 
-## Undoable Operation Categories
-
-Iteration 1 includes:
+Minimum transaction types:
 
 - Clip reorder;
 - Clip removal;
 - trim change;
-- Camera Position creation;
-- Camera Position modification;
-- Camera Position deletion;
-- Camera Position time movement.
+- Camera Position create;
+- Camera Position modify;
+- Camera Position delete;
+- Camera Position move.
 
-## Functional Model
+## Gesture Transaction Rule
 
 ```text
-Project State N
-     ↓ edit
-Project State N+1
-     ↓ undo
-Project State N
-     ↓ redo
-Project State N+1
+mouse-down
+  ↓
+temporary interactive changes
+  ↓
+mouse-up / commit
+  ↓
+ONE logical history transaction
 ```
 
-## Architectural Requirement
-
-Editing operations shall be represented in a way that allows their previous
-state to be restored.
-
-The exact implementation pattern is deferred to software architecture.
+The implementation pattern is deferred.
 
 ---
 
-# 20. FA-15 — Project Persistence
+# 28. FA-16 — Project Persistence
 
-## Responsibility
+Responsibilities:
 
-Persist sufficient Project metadata to reproduce the User's edit.
+- serialize Project metadata;
+- restore Project metadata;
+- preserve Project format/version;
+- preserve expected Source Identity;
+- report missing/mismatched sources;
+- protect the last successfully saved Project from an interrupted save.
 
-## Persisted Information
-
-At minimum:
-
-```text
-Project
-├── project format/version
-├── output frame
-├── Source Recording references
-└── Clips
-    ├── order
-    ├── source reference
-    ├── source_in
-    ├── source_out
-    └── View Path
-        └── Camera Positions
-            ├── clip_local_time
-            └── Camera State
-```
-
-## Save Flow
+Conceptual safe-save semantics:
 
 ```text
-Active Project State
-       ↓
-Serialization
-       ↓
-Project File
+current saved Project
+       ↓ save attempt
+new candidate state
+       ↓ successful durable completion
+replace current saved Project
 ```
 
-## Open Flow
-
-```text
-Project File
-       ↓
-Deserialization
-       ↓
-Resolve Source Recordings
-       ↓
-Restored Project State
-```
-
-## Missing Source Behavior
-
-A missing source shall be represented explicitly.
-
-The system shall not silently replace it with another media file.
-
-Automatic relinking is outside Iteration 1 unless later promoted.
+Exact file-system mechanics belong to software architecture.
 
 ---
 
-# 21. FA-16 — Final Rendering
+# 29. FA-17 — Work Coordination
 
-## Responsibility
+Responsibility:
 
-Produce final-quality reframed media for each Clip.
+Coordinate long-running work without assigning thread/process mechanisms at
+this architecture level.
 
-## Functional Input
+Work categories may include:
+
+- source inspection;
+- preview preparation;
+- decoding;
+- thumbnail/preview generation;
+- final rendering;
+- export assembly.
+
+Responsibilities:
+
+- submit work;
+- track work state;
+- prevent unnecessary duplicate work;
+- allow interactive work to remain responsive;
+- expose completion/failure;
+- coordinate competing heavy operations.
+
+Conceptual priority:
+
+```text
+Highest: interactive playback / reframing
+        ↓
+        seeking / scrub support
+        ↓
+        preview preparation
+        ↓
+Lowest: non-interactive background work
+```
+
+Exact scheduling belongs to software architecture.
+
+---
+
+# 30. FA-18 — Final Rendering
+
+Input:
 
 ```text
 Source Recording
@@ -911,780 +786,784 @@ Trim Range
 +
 View Path
 +
+Output Profile
+```
+
+For each output frame time:
+
+```text
+output/project timing
+       ↓
+Source Time
+       ↓
+final-quality source
+       ↓
+ViewPath.evaluate(source_time)
+       ↓
+Canonical Camera Model
+       ↓
 Output Frame
 ```
 
-## Functional Output
-
-```text
-Rendered conventional Clip
-```
-
-## Rendering Model
-
-For every output time `t` within the Clip:
-
-```text
-clip-local time t
-        ↓
-source time
-        ↓
-read original-quality panoramic source
-        ↓
-evaluate View Path CameraState(t)
-        ↓
-apply Virtual Camera
-        ↓
-produce output frame
-```
-
-## Architectural Rule
-
-Final rendering shall not derive final-quality image content from a
-reduced-quality interactive preview representation.
-
-Preview and final rendering may use different media representations, but both
-shall apply equivalent Virtual Camera and View Path semantics.
+Final rendering shall not use reduced-quality preview media as the source of
+final image quality.
 
 ---
 
-# 22. FA-17 — Export Assembly
+# 31. FA-19 — Export Assembly
 
-## Responsibility
+Responsibilities:
 
-Combine rendered Clips and corresponding audio into the final Project output.
-
-## Functional Model
-
-```text
-Rendered Clip A + Audio A
-Rendered Clip B + Audio B
-Rendered Clip C + Audio C
-             ↓
-        Sequential Assembly
-             ↓
-         H.264 / MP4
-```
-
-## Responsibilities
-
-- preserve Project Timeline order;
-- include only each Clip's trim range;
-- preserve the rendered View Path;
-- preserve corresponding source audio;
-- generate one conventional non-360 output file;
-- report success or failure.
+- process rendered Clips in timeline order;
+- preserve trim;
+- preserve source audio;
+- conform to Output Profile;
+- produce conventional H.264/MP4;
+- report success/failure.
 
 ---
 
-# 23. Core Domain Model
+# 32. State Separation
 
-The minimum domain model is:
+## 32.1 Source State
 
-```text
-Project
-│
-├── output_frame
-│
-└── clips[]
-      │
-      └── Clip
-            ├── clip_id
-            ├── source_recording_id
-            ├── source_in
-            ├── source_out
-            │
-            └── view_path
-                  │
-                  └── CameraPosition[]
-                        ├── position_id
-                        ├── clip_local_time
-                        └── camera_state
-                              ├── orientation
-                              ├── field_of_view
-                              └── horizon_orientation
-```
+Immutable:
 
-Supporting media model:
-
-```text
-SourceRecording
-├── source_id
-├── file_reference
-├── duration
-├── panoramic media information
-└── audio information
-```
-
-Derived preview information is associated with the Source Recording but is not
-part of the authoritative Project edit model.
-
----
-
-# 24. Ownership Rules
-
-The following ownership rules are architecture invariants.
-
-## AR-OWN-001 — Source Ownership
-
-SourceRecording owns source-media identity.
-
-It does not own Project editing decisions.
-
----
-
-## AR-OWN-002 — Clip Ownership
-
-Clip owns:
-
-- trim range;
-- View Path.
-
----
-
-## AR-OWN-003 — View Path Ownership
-
-View Path owns Camera Positions for one Clip.
-
----
-
-## AR-OWN-004 — Project Ownership
-
-Project owns:
-
-- Clip sequence;
-- Project Output Frame.
-
----
-
-## AR-OWN-005 — Preview Ownership
-
-Preview data is derived from source media.
-
-It does not own authoritative editing state.
-
----
-
-# 25. State Separation
-
-PanoPilot shall distinguish three categories of state.
-
-## 25.1 Source State
-
-Immutable information originating from camera media.
-
-Examples:
-
-- video;
-- audio;
+- source video;
+- source audio;
 - calibration;
-- duration.
+- duration;
+- Source Identity.
 
----
+## 32.2 Project State
 
-## 25.2 Project State
+Persistent editing metadata:
 
-Persistent non-destructive editing decisions.
-
-Examples:
-
+- source references;
 - Clip order;
-- trim range;
-- Output Frame;
+- trim;
+- Output Profile;
 - Camera Positions;
 - View Paths.
 
----
+## 32.3 Session State
 
-## 25.3 Session State
+Temporary runtime state:
 
-Temporary runtime interaction state.
-
-Examples:
-
-- currently selected Clip;
-- current playhead position;
+- selected Clip;
+- playhead;
 - exploratory Camera State;
-- temporary drag state;
-- active UI selection.
+- active drag;
+- UI selection;
+- preparation progress.
 
-## Architectural Rule
-
-Session state shall not become persistent Project state unless an editing
-operation explicitly commits it.
+Session state becomes Project state only through an explicit edit commit.
 
 ---
 
-# 26. Primary Functional Flows
+# 33. Primary Information Flows
 
-## 26.1 Add Media Flow
+## 33.1 Add Media
 
 ```text
-User selects OSV files
-        ↓
-Source Media Management
-        ↓
-validate each source
-        ↓
-create Clip
-        ↓
-append Clip to Timeline
-        ↓
+OSV selection
+    ↓
+DJI OSV Adapter
+    ↓
+Panoramic Source Port
+    ↓
+Source Identity
+    ↓
+SourceRecording
+    ↓
+Clip
+    ↓
+Timeline
+    ↓
 Preview Preparation
-        ↓
-Clip READY
 ```
 
----
-
-## 26.2 Reframe Flow
+## 33.2 Reframe
 
 ```text
-User selects Clip
-        ↓
-Timeline identifies clip-local time
-        ↓
-Panoramic Scene
-        ↓
-Virtual Camera
-        ↓
-User drags / zooms
-        ↓
-Exploratory Camera State
-        ↓
-User selects "Use this view"
-        ↓
-Camera Position
-        ↓
-View Path updated
+Clip + Source Time
+    ↓
+Panoramic Representation
+    ↓
+Canonical Camera Model
+    ↑
+exploratory Camera State
+    ↑
+mouse drag / zoom
+
+explicit Use This View
+    ↓
+Camera Position(source_time)
+    ↓
+View Path
 ```
 
----
-
-## 26.3 Playback Flow
+## 33.3 Trim Change
 
 ```text
-Playhead
-   ↓
-Timeline Mapping
-   ↓
-Active Clip + Clip-Local Time
-   ↓
-Trim Mapping
-   ↓
-Source Time
-   ↓
-Panoramic Scene + Source Audio
-   ↓
-View Path Camera State
-   ↓
-Virtual Camera
-   ↓
-Output Frame + synchronized audio
-```
-
----
-
-## 26.4 Reorder Flow
-
-```text
-User moves Clip C
+new source_in/source_out
       ↓
-Timeline updates order
+Clip duration changes
       ↓
 Project Time offsets change
       ↓
-Clip C source_in/source_out unchanged
+Camera Position source_time unchanged
       ↓
-Clip C Camera Positions unchanged
-      ↓
-Clip C View Path unchanged
+active/inactive Camera Positions recalculated
 ```
 
----
+## 33.4 Playback
 
-## 26.5 Save / Open Flow
+```text
+Project Time
+  ↓
+Timeline
+  ↓
+Source Time
+  ↓
+Panoramic Representation + Audio
+  ↓
+ViewPath.evaluate(source_time)
+  ↓
+Canonical Camera Model
+  ↓
+Output Frame + synchronized audio
+```
+
+## 33.5 Save/Open
 
 ```text
 Project State
-    ↓ save
+  ↓
+safe serialization
+  ↓
 Project File
 
 Project File
-    ↓ open
-Project State
-    ↓
-resolve Source Recordings
-    ↓
-prepare previews as required
+  ↓
+restore state
+  ↓
+resolve source paths
+  ↓
+verify Source Identity
+  ↓
+prepare preview as needed
 ```
 
----
-
-## 26.6 Export Flow
+## 33.6 Export
 
 ```text
 Project
   ↓
-for Clip in Timeline order
+Timeline order
   ↓
-Trim Range
+Clip trim
   ↓
-Original-quality Source
+Source Time
+  ↓
+final-quality source
   +
 View Path
   +
-Output Frame
+Output Profile
   ↓
-Rendered Clip
-  +
-Source Audio
+Canonical Camera Model
   ↓
-Sequential Assembly
+Rendered Clips + audio
   ↓
 MP4
 ```
 
 ---
 
-# 27. Functional Interfaces
+# 34. Logical Interfaces
 
-The following logical interfaces shall exist independent of implementation
-technology.
+## FI-01 — Application ↔ Project
 
-## FI-01 — Project ↔ Timeline
+Provides Project commands and current state.
 
-Provides:
+## FI-02 — Project ↔ Timeline
 
-- ordered Clip collection;
-- Clip reorder operation;
-- current Project duration.
+Provides ordered Clips and Project duration.
 
----
+## FI-03 — Timeline ↔ Clip
 
-## FI-02 — Timeline ↔ Clip
+Provides active Clip and deterministic time mapping.
 
-Provides:
+## FI-04 — Clip ↔ Panoramic Source Port
 
-- active Clip;
-- clip-local time;
-- trim-aware source-time mapping.
+Provides source identity, duration, media, and calibration.
 
----
+## FI-05 — Clip ↔ View Path
 
-## FI-03 — Clip ↔ Source Media
+Provides Camera Positions and CameraState at Source Time.
 
-Provides:
+## FI-06 — Reframing Interaction ↔ Camera Model
 
-- Source Recording reference;
-- source duration;
-- source media access.
+Provides temporary Camera State and Reset View.
 
----
+## FI-07 — Camera Position ↔ Camera Model
 
-## FI-04 — Clip ↔ View Path
-
-Provides:
-
-- Camera Positions;
-- CameraState(t).
-
----
-
-## FI-05 — Preview ↔ Panoramic Scene
-
-Provides:
-
-- panoramic scene at source time.
-
----
-
-## FI-06 — Reframing Interaction ↔ Virtual Camera
-
-Provides:
-
-- temporary camera orientation;
-- temporary FOV;
-- Reset View.
-
----
-
-## FI-07 — Camera Position ↔ Virtual Camera
-
-Provides:
-
-- commit current Camera State;
-- restore stored Camera State.
-
----
+Commits/restores Camera State.
 
 ## FI-08 — Playback ↔ Audio
 
-Provides:
-
-- source audio corresponding to active source time.
-
----
+Provides source audio at mapped Source Time.
 
 ## FI-09 — Persistence ↔ Project Model
 
-Provides:
+Serializes/restores authoritative Project state.
 
-- serialize Project state;
-- restore Project state.
+## FI-10 — Renderer ↔ Camera/ViewPath Core
 
----
+Provides the same CameraState semantics used by preview.
 
-## FI-10 — Final Renderer ↔ Project Model
+## FI-11 — Work Coordinator ↔ Long-Running Functions
 
-Provides:
-
-- ordered Clips;
-- trim ranges;
-- View Paths;
-- Output Frame.
+Provides submit/state/completion/failure semantics.
 
 ---
 
-# 28. Functional Traceability to Use Cases
+# 35. Traceability to Use Cases
 
 | Use Case | Principal Functional Areas |
 |---|---|
-| UC-01 Start New Project | FA-01, FA-02 |
-| UC-02 Add Panoramic Recordings | FA-03, FA-04, FA-07, FA-08 |
-| UC-03 Manage Clip Sequence | FA-04, FA-05, FA-14 |
-| UC-04 Trim Clip | FA-05, FA-06, FA-14 |
-| UC-05 Select Output Frame | FA-02, FA-09 |
-| UC-06 Explore and Reframe Clip | FA-08, FA-09, FA-10 |
-| UC-07 Define and Edit View Path | FA-05, FA-09, FA-11, FA-12, FA-14 |
-| UC-08 Preview Reframed Clip | FA-05, FA-08, FA-09, FA-12, FA-13 |
-| UC-09 Preview Project Sequence | FA-05, FA-08, FA-09, FA-12, FA-13 |
-| UC-10 Undo or Redo Edit | FA-14 |
-| UC-11 Save Project | FA-02, FA-04, FA-15 |
-| UC-12 Reopen Project | FA-03, FA-04, FA-07, FA-15 |
-| UC-13 Export Project | FA-05, FA-06, FA-12, FA-16, FA-17 |
+| UC-01 | FA-01, FA-02 |
+| UC-02 | FA-03, FA-04, FA-05, FA-08, FA-09, FA-17 |
+| UC-03 | FA-05, FA-06, FA-15 |
+| UC-04 | FA-06, FA-07, FA-12, FA-15 |
+| UC-05 | FA-02, FA-10 |
+| UC-06 | FA-09, FA-10, FA-11 |
+| UC-07 | FA-06, FA-10, FA-12, FA-13, FA-15 |
+| UC-08 | FA-06, FA-09, FA-10, FA-13, FA-14 |
+| UC-09 | FA-06, FA-09, FA-10, FA-13, FA-14 |
+| UC-10 | FA-15 |
+| UC-11 | FA-04, FA-16 |
+| UC-12 | FA-03, FA-04, FA-08, FA-16 |
+| UC-13 | FA-06, FA-10, FA-13, FA-17, FA-18, FA-19 |
 
 ---
 
-# 29. Functional Traceability to Requirement Areas
+# 36. Architecture Invariants
 
-| Requirement Area | Allocated Functional Areas |
-|---|---|
-| SYS-APP | FA-01 |
-| SYS-PROJ | FA-02 |
-| SYS-MEDIA | FA-03 |
-| SYS-CLIP | FA-04, FA-05 |
-| SYS-TRIM | FA-06 |
-| SYS-PREV | FA-07, FA-08 |
-| SYS-FRAME | FA-02, FA-09 |
-| SYS-CAM | FA-09, FA-10 |
-| SYS-EDIT | FA-10, FA-11 |
-| SYS-TIME | FA-05, FA-13 |
-| SYS-POS | FA-11 |
-| SYS-PATH | FA-12 |
-| SYS-AUDIO | FA-13 |
-| SYS-HIST | FA-14 |
-| SYS-SAVE | FA-15 |
-| SYS-EXP | FA-16, FA-17 |
-| SYS-PERF | FA-07, FA-08, FA-09, FA-13 |
+- AI-01 — Original media is immutable.
+- AI-02 — Editing is metadata.
+- AI-03 — View Path belongs to Clip.
+- AI-04 — Camera Positions are Source-Time anchored.
+- AI-05 — Timeline order is independent of reframing.
+- AI-06 — Trim does not retime Camera Positions.
+- AI-07 — Explore and commit are separate.
+- AI-08 — Preview is derived and disposable.
+- AI-09 — One canonical Camera Model exists.
+- AI-10 — One authoritative View Path evaluator exists.
+- AI-11 — Preview and final rendering consume equivalent Camera/ViewPath semantics.
+- AI-12 — One Output Profile applies to the Project.
+- AI-13 — Timeline is sequential and non-overlapping in Iteration 1.
+- AI-14 — Source-format-specific behavior is isolated behind a Panoramic Source Port.
+- AI-15 — Continuous editing gestures commit as logical transactions.
+- AI-16 — Failed save does not invalidate the previous successfully saved Project.
 
 ---
 
-# 30. Architecture Invariants
+# 37. Quality-Attribute Scenarios
 
-These rules shall remain true regardless of software technology.
+## QAS-01 — Camera Responsiveness
 
-## AI-01 — Original Media Is Immutable
+**Stimulus:** User drags the mouse while the active Clip preview is READY.  
+**Response:** PanoPilot displays the updated camera composition.  
+**Measure:** `CAMERA-RESPONSE-001`.
 
-The application does not edit Source Recording files in place.
+## QAS-02 — Seek Responsiveness
 
----
+**Stimulus:** User scrubs a prepared Clip.  
+**Response:** Corresponding preview imagery is displayed.  
+**Measure:** `SCRUB-RESPONSE-001`.
 
-## AI-02 — Editing Is Metadata
+## QAS-03 — Background Work Isolation
 
-Clip ordering, trim, Camera Positions, and View Paths are Project data.
+**Stimulus:** Clip B preview is being prepared while Clip A is READY.  
+**Response:** User can continue reframing Clip A without Clip B preparation
+owning the UI interaction path.
 
----
+## QAS-04 — Persistence Safety
 
-## AI-03 — Reframing Is Clip-Local
+**Stimulus:** Save is interrupted or fails.  
+**Response:** Last successfully saved Project remains usable.
 
-Camera Positions and View Paths use clip-local time.
+## QAS-05 — Render Correctness
 
----
+**Stimulus:** Preview and final renderer receive the same Source Time,
+Camera State, and Output Profile.  
+**Response:** Both represent geometrically equivalent framing within
+`CAMERA-EQUIVALENCE-001`.
 
-## AI-04 — Timeline Order Is Independent
+## QAS-06 — Source-Format Modifiability
 
-Changing Project Timeline order does not change the internal View Path of a
-Clip.
+**Stimulus:** A future panoramic source format is added.  
+**Response:** Project, Clip, Timeline, Trim, CameraPosition, and ViewPath
+semantics require no source-format-specific changes.
 
----
+## QAS-07 — Trim Stability
 
-## AI-05 — Explore and Commit Are Separate
-
-Direct panoramic exploration does not change the View Path until the User
-explicitly commits a Camera Position.
-
----
-
-## AI-06 — Preview Is Derived
-
-Preview media may be regenerated without losing Project editing state.
-
----
-
-## AI-07 — Preview and Export Share Camera Semantics
-
-The preview path and final-render path may use different media quality, but
-must interpret the same Camera State and View Path consistently.
+**Stimulus:** User changes Clip In after Camera Positions exist.  
+**Response:** Camera Positions remain attached to the same Source Time and
+source content.
 
 ---
 
-## AI-08 — One Project Output Frame
+# 38. Functional Architecture Decisions
 
-Iteration 1 applies one Project Output Frame to every Clip.
-
----
-
-## AI-09 — Timeline Is Sequential
-
-Iteration 1 contains one sequential non-overlapping Clip sequence.
-
----
-
-# 31. Functional Architecture Decisions
-
-The following decisions are baselined by this document.
-
-| ID | Decision |
-|---|---|
-| FAD-001 | PanoPilot is Project-based rather than Source-Recording-based |
-| FAD-002 | Multiple Clip instances exist within one Project |
-| FAD-003 | Clip order and reframing are independent concerns |
-| FAD-004 | Trim range belongs to Clip |
-| FAD-005 | View Path belongs to Clip |
-| FAD-006 | Camera Position time is clip-local |
-| FAD-007 | Exploration state is temporary |
-| FAD-008 | Camera Position creation is an explicit commit |
-| FAD-009 | Preview representation is derived and disposable |
-| FAD-010 | Final rendering uses final-quality source media |
-| FAD-011 | Preview and rendering share one logical camera model |
-| FAD-012 | Undo/Redo applies to editing metadata rather than source media |
-| FAD-013 | Project persistence stores editing metadata and source references |
+| ID | Decision | Rationale |
+|---|---|---|
+| FAD-001 | PanoPilot is Project-based | Multi-clip sequencing is core |
+| FAD-002 | Clip owns Trim and View Path | Reframing belongs to a Project use of media |
+| FAD-003 | Camera Position is Source-Time anchored | Trim must not shift reframing away from content |
+| FAD-004 | Project Time, Clip Time, Source Time are distinct | Prevent temporal coupling |
+| FAD-005 | Preview is derived | Interaction optimization must not own edit state |
+| FAD-006 | Canonical Camera Model is shared | Prevent preview/render divergence |
+| FAD-007 | One View Path evaluator is authoritative | Prevent duplicate motion semantics |
+| FAD-008 | Source formats use adapters | Protect domain from DJI/FFmpeg coupling |
+| FAD-009 | Output Profile is Project-wide | Deterministic multi-source rendering |
+| FAD-010 | Edit gestures are transactions | Usable Undo/Redo |
+| FAD-011 | Persistence verifies Source Identity | Prevent silent media substitution |
+| FAD-012 | Work coordination is explicit | Media work must not accidentally own UI responsiveness |
 
 ---
 
-# 32. Architecture-Driving Risks
+# 39. Lightweight ADR Candidates
 
-The following risks are not resolved by functional decomposition and require
-technical demonstration before software architecture is frozen.
+The following should become small ADR records when software architecture
+begins:
 
-## RISK-01 — DJI OSV Interpretation
+- ADR-001 — Source media is immutable.
+- ADR-002 — View Path belongs to Clip.
+- ADR-003 — Camera Positions are Source-Time anchored.
+- ADR-004 — Preview media is derived.
+- ADR-005 — One canonical Camera/ViewPath core.
+- ADR-006 — Panoramic sources are isolated behind adapters.
+- ADR-007 — Project output uses one Output Profile.
+- ADR-008 — Save semantics protect the last valid Project.
 
-Can supported `.OSV` media be reliably interpreted and reconstructed from
-actual camera files?
+Each ADR should record:
 
-**Impact:** Critical
-
----
-
-## RISK-02 — Interactive Panoramic Preview
-
-Can a prepared panoramic representation support sufficiently responsive
-mouse-driven reframing on the Fedora reference system?
-
-**Impact:** Critical
-
----
-
-## RISK-03 — Preview / Render Equivalence
-
-Can the same logical Camera State and View Path reproduce equivalent
-composition in interactive preview and final-quality rendering?
-
-**Impact:** Critical
+```text
+Context
+Decision
+Rationale
+Alternatives
+Consequences
+```
 
 ---
 
-## RISK-04 — Panoramic Camera Interpolation
+# 40. Architecture-Driving Risks
 
-Can camera interpolation avoid discontinuities and unintended long rotations
-across panoramic wrap boundaries?
+## RISK-01 — DJI OSV Interpretation — Critical
 
-**Impact:** High
+Can representative `.OSV` recordings be interpreted reliably?
+
+## RISK-02 — Interactive Panoramic Preview — Critical
+
+Can the prepared panorama support responsive mouse-driven reframing?
+
+## RISK-03 — Preview/Render Equivalence — Critical
+
+Can one canonical Camera/ViewPath model drive both paths accurately?
+
+## RISK-04 — Camera Interpolation — High
+
+Can interpolation remain continuous across the panoramic seam?
+
+## RISK-05 — Audio/Time Mapping — High
+
+Can trim, Project Time mapping, source audio, and sequential playback remain
+synchronized?
+
+## RISK-06 — Output Normalization — High
+
+Can mixed source frame rates/resolutions be rendered deterministically into
+one Project Output Profile?
 
 ---
 
-## RISK-05 — Timeline Audio Synchronization
-
-Can clip-local trim, View Path playback, sequential Project playback, and
-source audio remain synchronized?
-
-**Impact:** High
-
----
-
-# 33. Required Technical Spikes
-
-Before baselining software architecture, perform the following three spikes.
+# 41. Required Technical Spikes
 
 ## SPIKE-01 — OSV to Navigable Panorama
 
-### Objective
-
-Demonstrate that one representative DJI Osmo 360 `.OSV` can produce a usable
-panoramic scene on Fedora.
-
-### Demonstration
+Demonstrate:
 
 ```text
-OSV
- ↓
-source inspection
- ↓
-panoramic reconstruction
- ↓
-navigable 360 preview
+representative OSV
+  ↓
+DJI OSV Adapter
+  ↓
+Panoramic Representation
+  ↓
+navigable preview
 ```
 
-### Success Criteria
+Success:
 
-- representative `.OSV` is accepted;
-- panoramic scene is visually usable;
-- User can inspect the full surrounding scene;
-- no manual preconversion is required.
+- supported source accepted;
+- panoramic representation visually usable;
+- no manual preconversion;
+- source timing and audio discoverable.
 
 ---
 
-## SPIKE-02 — Interactive Virtual Camera
+## SPIKE-02 — Interactive Canonical Camera
 
-### Objective
-
-Demonstrate responsive direct manipulation of the panoramic scene.
-
-### Demonstration
+Demonstrate:
 
 ```text
-Panoramic Scene
-      ↓
-Virtual Camera
-      ↓
-16:9 / 9:16 frame
+Panoramic Representation
+      +
+Canonical Camera Model
       ↑
-mouse drag / mouse wheel
+mouse drag / wheel
+      ↓
+16:9 / 9:16 preview
 ```
 
-### Success Criteria
+Success:
 
-- horizontal drag changes viewing direction;
-- vertical drag changes viewing direction;
-- mouse wheel changes FOV;
-- interaction is subjectively usable and can be measured against the future
-  performance requirement;
-- exploration does not commit Camera Positions.
+- horizontal/vertical navigation;
+- zoom/FOV;
+- Reset View;
+- interaction is measurable against `CAMERA-RESPONSE-001`;
+- exploration does not create Camera Positions.
 
 ---
 
-## SPIKE-03 — View Path to Final MP4
+## SPIKE-03 — Source-Time View Path to Final MP4
 
-### Objective
-
-Demonstrate that committed Camera Positions can be rendered consistently from
-the original source.
-
-### Demonstration
+Demonstrate:
 
 ```text
 Original OSV
-   +
-Camera Position A
-   +
-Camera Position B
-   +
-Trim Range
-      ↓
-View Path
-      ↓
-Final Render
-      ↓
+  +
+Trim
+  +
+source-time Camera Positions
+  +
+Output Profile
+  ↓
+Canonical View Path / Camera
+  ↓
 H.264 MP4 + audio
 ```
 
-### Success Criteria
+Success:
 
-- two or more Camera Positions are rendered;
-- panoramic wrap behavior is correct;
-- exported framing corresponds to preview framing;
-- output is conventional non-360 MP4;
-- source audio remains synchronized.
-
----
-
-# 34. Software Architecture Questions Deliberately Deferred
-
-The following shall be decided only after the functional architecture and
-technical spikes provide evidence.
-
-- Python versus Rust ownership boundaries;
-- desktop shell technology;
-- native UI versus web-rendered UI;
-- Three.js/WebGL versus native GPU panoramic rendering;
-- FFmpeg subprocess versus bindings/library integration;
-- PanoForge module reuse boundaries;
-- preview storage format;
-- preview cache lifecycle;
-- project serialization format;
-- threading/process model;
-- GPU acceleration strategy;
-- packaging and application distribution.
+- two or more Camera Positions;
+- correct panoramic-wrap motion;
+- trim change does not retime Camera Positions;
+- preview/final framing equivalence;
+- mixed source timing assumptions are understood;
+- synchronized audio.
 
 ---
 
-# 35. Iteration 1 Functional Baseline
+# 42. Architecture Verification Assets
 
-The minimum Iteration 1 system can therefore be summarized as:
+Create and maintain:
+
+- representative/golden `.OSV` samples;
+- source-inspection tests;
+- Source Identity tests;
+- Project/Clip/Source Time mapping tests;
+- trim-preserves-source-anchor tests;
+- out-of-trim Camera Position tests;
+- camera-math unit tests;
+- panoramic-wrap interpolation tests;
+- Output Profile normalization tests;
+- Project save/open round-trip tests;
+- interrupted-save test;
+- preview/render framing comparison;
+- audio synchronization test.
+
+Critical regression property:
 
 ```text
-                        PanoPilot
-                           │
-            ┌──────────────┴──────────────┐
-            │                             │
-       Project Model                 Media Model
-            │                             │
-     ┌──────┴───────┐              Source Recording
-     │              │                     │
- Timeline         Clips              Panoramic Scene
-     │              │                     │
-     │        ┌─────┴─────┐               │
-     │        │           │               │
-   Order    Trim       View Path           │
-                         │                 │
-                  Camera Positions         │
-                         │                 │
-                         └──────┬──────────┘
-                                │
-                         Virtual Camera
-                                │
-                     ┌──────────┴──────────┐
-                     │                     │
-                  Preview              Final Render
-                     │                     │
-                Project Playback        MP4 Export
+Given:
+  Source Time = T
+  Camera State = C
+  Output Profile = P
+
+Preview(T, C, P)
+and
+FinalRender(T, C, P)
+
+shall represent equivalent framing within CAMERA-EQUIVALENCE-001.
 ```
 
 ---
 
-# 36. Exit Criteria for Functional Architecture
+# 43. Software Architecture Questions Deliberately Deferred
 
-This functional architecture is ready to proceed to software architecture
-when:
+- Python versus Rust boundaries;
+- Tauri versus Qt/other desktop shell;
+- native versus web-rendered UI;
+- Three.js/WebGL versus native GPU rendering;
+- FFmpeg subprocess versus bindings;
+- PanoForge reuse boundaries;
+- preview representation format;
+- cache lifecycle;
+- project serialization format;
+- thread/process/worker model;
+- hardware acceleration strategy;
+- packaging/distribution.
 
-1. the Iteration 1 use cases are represented by functional flows;
-2. every Iteration 1 requirement area is allocated to at least one functional
-   area;
-3. the ownership of Project, Clip, Trim Range, View Path, Camera Position,
-   and Source Recording is unambiguous;
-4. Project Time, Clip-Local Time, and Source Time are explicitly separated;
-5. exploration and committed reframing state are explicitly separated;
-6. preview and final rendering share a defined logical Virtual Camera model;
-7. the three architecture-driving technical spikes have been executed or
-   accepted as the next implementation activity.
+---
+
+# 44. Exit Criteria
+
+The functional architecture is ready for software architecture when:
+
+1. use cases and requirements are aligned to this FA baseline;
+2. Source Time anchoring is accepted across all documents;
+3. Camera Model semantics required for preview/render equivalence are defined
+   sufficiently for a technical spike;
+4. Project Output Profile policy is defined or explicitly TBD;
+5. Source Adapter boundary is accepted;
+6. work coordination responsibility is accepted;
+7. the three technical spikes have been executed or explicitly approved as
+   implementation work;
+8. architecture verification assets have been identified.
+
+
+---
+
+# 39. Architecture Realization Update — PanoPilot 0.19
+
+## 39.1 Current Responsibility Mapping
+
+The prototype currently realizes the functional architecture approximately as:
+
+```text
+Editing Domain
+    project.py
+    session.py
+    timeline.py
+    view_path.py
+
+Panoramic Media
+    dji.py
+    source.py
+    factory.py
+    attitude.py
+    pipeline.py
+    preview.py
+    cache.py
+
+Reframing
+    virtual_camera.py
+    explore.py
+    path_render.py
+
+Project Playback
+    project_player.py
+
+Desktop Coordination
+    project_editor.py
+    loading.py
+
+Command Boundary
+    cli.py
+```
+
+This mapping is informative, not normative.
+
+## 39.2 View Path Evaluation
+
+FA-13 now includes two Project-level Camera Motion inputs:
+
+```text
+View Path
++ Source Time
++ Easing Preset
++ Easing Amount
+        ↓
+Camera State
+```
+
+The easing Amount blends raw linear segment time with the selected normalized
+easing curve.
+
+The same View Path evaluator is consumed by:
+
+- Clip Editor seek/playback;
+- Project Preview;
+- `camera-at`;
+- `reframe-path`.
+
+This continues to enforce one semantic camera-motion core.
+
+## 39.3 Project Preview Realization
+
+FA-14 Project Playback is now executable:
+
+```text
+Project Time
+    ↓
+timeline_time_to_source()
+    ↓
+ClipTimelineSpan + Source Time
+    ↓
+PanoramaCacheReader(active Clip)
+    +
+evaluate_clip_view_path()
+    ↓
+reframe_equirectangular()
+    ↓
+Conventional Preview Frame
+
+Active Clip
+    ↓
+cached preview audio
+    ↓
+QMediaPlayer
+```
+
+The monotonic Project clock is authoritative for preview progression. Cached
+audio follows the active Clip and changes source when Project Time crosses a
+Clip boundary.
+
+The Project Player owns no authoritative edit state.
+
+## 39.4 Preview Cache Boundary
+
+Derived panoramic preview remains explicitly outside authoritative Project
+state.
+
+Cache identity is based on source identity and preview preparation profile.
+Cache regeneration shall not alter Clip trim, Camera Positions, View Paths,
+Camera Motion, Clip order, or Output Profile.
+
+## 39.5 Desktop Window Lifecycle
+
+The desktop prototype keeps one QApplication alive while switching among:
+
+```text
+Project Organizer
+Clip Editor
+Project Preview
+Loading state
+```
+
+Top-level windows use local Qt event loops. Long-running preview preparation
+executes on a worker thread while the GUI thread owns loading-state lifecycle.
+
+## 39.6 Remaining Iteration-1 Architecture Gap
+
+The major remaining path is:
+
+```text
+Original OSV sources
++ per-Clip trim
++ per-Clip View Path
++ Project Camera Motion
++ Project Output Profile
++ Project Timeline order
+        ↓
+final-quality sequential conventional MP4
+```
+
+Final rendering shall not treat the disposable panoramic preview cache as the
+authoritative render source.
+
+
+---
+
+# 40. Final Export Architecture — PanoPilot 0.20
+
+## 40.1 Functional Allocation
+
+```text
+FA-15 Project Export
+    ↓
+Output Profile Policy
+    ↓
+Global Project Frame Planner
+    ↓
+per-Clip Original-Source Renderer
+    ↓
+Continuous H.264 Video Encoder
+
+Project Timeline
+    ↓
+per-Clip Source Audio / Silence
+    ↓
+Continuous Project Audio Assembler
+
+Video + Audio
+    ↓
+MP4 Mux
+    ↓
+Export Verifier
+    ↓
+Atomic Output Promotion
+```
+
+The current implementation is realized primarily by:
+
+```text
+output_profile.py
+project_export.py
+```
+
+## 40.2 Original-Source Render Context
+
+For each Clip, final image rendering constructs one reusable Clip render
+context containing:
+
+- original source probe;
+- synchronized lens-stream indexes;
+- DJI factory calibration mapper;
+- DJI orientation trajectory;
+- output-frame exposure-time mapping.
+
+These resources are independent from the disposable preview cache.
+
+## 40.3 Frame Allocation
+
+Project frame allocation occurs globally before per-Clip rendering. Each output
+frame has exactly one Project frame index and maps to one active Clip and Source
+Time. Contiguous frame groups are then rendered per Clip to avoid repeated
+source initialization while preserving Project clock authority.
+
+## 40.4 Audio Assembly
+
+Audio is decoded from original Source Recordings. Every active Clip contributes
+one Timeline-ordered audio segment. When Project audio exists overall, a Clip
+without audio contributes generated stereo silence at 48 kHz.
+
+All segments are concatenated and encoded once as AAC before final mux.
+
+## 40.5 Export Transaction Boundary
+
+```text
+render → preparing MP4 → ffprobe verification → atomic replace → success
+```
+
+Any exception before atomic replace shall leave the requested output path
+unchanged.
+
+## 40.6 Known Optimization Opportunity
+
+The correctness-first final renderer currently performs:
+
+```text
+factory stitch
+→ spherical horizon resample
+→ rectilinear Virtual Camera resample
+```
+
+A later optimization may combine attitude and Virtual Camera projection into a
+single final source-to-output remap. Such optimization shall not change the
+canonical Camera Model or View Path semantics.
