@@ -1,0 +1,12 @@
+{
+  "perframe_count": 601,
+  "highrate_count": 5994,
+  "median_frame_interval_us": 10000.0,
+  "median_highrate_samples_per_frame": 10,
+  "estimated_highrate_period_us": 1000.0,
+  "anchor_match_mean_deg": 6.209974023343321e-07,
+  "anchor_match_max_deg": 2.9575586669421963e-06,
+  "anchor_index_distribution": {
+    "2": 601
+  }
+}

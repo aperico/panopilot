@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "output_frame": {
+    "aspect": "16:9"
+  },
+  "clips": [
+    {
+      "id": "clip-1",
+      "source": "samples/osmosample.OSV",
+      "camera_positions": [
+        {
+          "source_time": 2.0,
+          "yaw_deg": 34.2,
+          "pitch_deg": -6.8,
+          "fov_deg": 72.0
+        }
+      ]
+    }
+  ]
+}

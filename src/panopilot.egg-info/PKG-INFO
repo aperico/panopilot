@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: panopilot
+Version: 0.15.0
+Summary: PanoPilot 360 panoramic video reframing prototype
+Requires-Python: >=3.11
+Requires-Dist: numpy>=2.0
+Requires-Dist: opencv-python-headless>=4.10
+Requires-Dist: PySide6>=6.8

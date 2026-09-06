@@ -1,0 +1,2 @@
+[console_scripts]
+panopilot = panopilot.cli:main

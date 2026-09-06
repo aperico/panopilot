@@ -1,0 +1,145 @@
+PanoPilot SPIKE-01 Stream Summary
+============================================================
+File: /home/aperico/workspace/osmo360/samples/osmosample.OSV
+Size bytes: 90787959
+Format: mov,mp4,m4a,3gp,3g2,mj2
+Duration: 6.016000
+Start time: 0.000000
+Bit rate: 120728668
+
+Stream #0 [video]
+  codec:       hevc
+  profile:     None
+  pixel fmt:   None
+  dimensions:  1920x1920
+  frame rate:  100/1
+  r_frame_rate:100/1
+  time base:   1/100000
+  start time:  0.000000
+  duration:    6.010000
+  channels:    None
+  sample rate: None
+  tags:
+    creation_time: 2026-08-30T16:52:48.000000Z
+    handler_name: VideoHandler
+    language: und
+
+Stream #1 [video]
+  codec:       hevc
+  profile:     None
+  pixel fmt:   None
+  dimensions:  1920x1920
+  frame rate:  100/1
+  r_frame_rate:100/1
+  time base:   1/100000
+  start time:  0.000000
+  duration:    6.010000
+  channels:    None
+  sample rate: None
+  tags:
+    creation_time: 2026-08-30T16:52:48.000000Z
+    handler_name: VideoHandler
+    language: und
+
+Stream #2 [audio]
+  codec:       aac
+  profile:     None
+  pixel fmt:   None
+  dimensions:  NonexNone
+  frame rate:  0/0
+  r_frame_rate:0/0
+  time base:   1/48000
+  start time:  0.000000
+  duration:    6.016000
+  channels:    2
+  sample rate: 48000
+  tags:
+    creation_time: 2026-08-30T16:52:48.000000Z
+    handler_name: SoundHandler
+    language: und
+
+Stream #3 [data]
+  codec:       None
+  profile:     None
+  pixel fmt:   None
+  dimensions:  NonexNone
+  frame rate:  0/0
+  r_frame_rate:0/0
+  time base:   1/100000
+  start time:  0.000000
+  duration:    6.010000
+  channels:    None
+  sample rate: None
+  tags:
+    creation_time: 2026-08-30T16:52:48.000000Z
+    handler_name: CAM meta
+    language: und
+
+Stream #4 [data]
+  codec:       None
+  profile:     None
+  pixel fmt:   None
+  dimensions:  NonexNone
+  frame rate:  0/0
+  r_frame_rate:0/0
+  time base:   1/100000
+  start time:  0.000000
+  duration:    6.010000
+  channels:    None
+  sample rate: None
+  tags:
+    creation_time: 2026-08-30T16:52:48.000000Z
+    handler_name: CAM meta
+    language: und
+
+Stream #5 [data]
+  codec:       None
+  profile:     None
+  pixel fmt:   None
+  dimensions:  NonexNone
+  frame rate:  0/0
+  r_frame_rate:0/0
+  time base:   1/100000
+  start time:  0.000000
+  duration:    6.010000
+  channels:    None
+  sample rate: None
+  tags:
+    creation_time: 2026-08-30T16:52:48.000000Z
+    handler_name: CAM dbgi
+    language: und
+
+Stream #6 [data]
+  codec:       None
+  profile:     None
+  pixel fmt:   None
+  dimensions:  NonexNone
+  frame rate:  0/0
+  r_frame_rate:0/0
+  time base:   1/100000
+  start time:  0.000000
+  duration:    6.010000
+  channels:    None
+  sample rate: None
+  tags:
+    creation_time: 2026-08-30T16:52:48.000000Z
+    handler_name: CAM dbgi
+    language: und
+
+Stream #7 [video]
+  codec:       mjpeg
+  profile:     Baseline
+  pixel fmt:   yuvj420p
+  dimensions:  688x344
+  frame rate:  0/0
+  r_frame_rate:90000/1
+  time base:   1/90000
+  start time:  0.000000
+  duration:    6.016000
+  channels:    None
+  sample rate: None
+
+Stream counts:
+  audio: 1
+  data: 4
+  video: 3

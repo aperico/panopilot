@@ -1,0 +1,55 @@
+usage: panopilot explore [-h] [--time TIME] [--yaw YAW] [--pitch PITCH]
+                         [--fov FOV] [--aspect {16:9,9:16}]
+                         [--no-level-horizon]
+                         [--level-strength LEVEL_STRENGTH]
+                         [--imu-source {highrate,perframe}]
+                         [--imu-offset-ms IMU_OFFSET_MS]
+                         [--panorama-width PANORAMA_WIDTH]
+                         [--panorama-height PANORAMA_HEIGHT]
+                         [--view-long-edge VIEW_LONG_EDGE] [--no-hud]
+                         [--project PROJECT] [--seek-step-ms SEEK_STEP_MS]
+                         [--preview-fps PREVIEW_FPS]
+                         [--level-smoothing-ms LEVEL_SMOOTHING_MS]
+                         [--cache-dir CACHE_DIR] [--rebuild-preview]
+                         [--no-preview-cache] [--no-playback-audio]
+                         source
+
+positional arguments:
+  source
+
+options:
+  -h, --help            show this help message and exit
+  --time TIME           Source Time to prepare for exploration (default: 2.0)
+  --yaw YAW             Initial horizontal camera orientation in degrees
+  --pitch PITCH         Initial vertical camera orientation in degrees
+  --fov FOV             Initial FOV; default uses the persisted View Path when
+                        available
+  --aspect {16:9,9:16}
+  --no-level-horizon
+  --level-strength LEVEL_STRENGTH
+  --imu-source {highrate,perframe}
+  --imu-offset-ms IMU_OFFSET_MS
+  --panorama-width PANORAMA_WIDTH
+  --panorama-height PANORAMA_HEIGHT
+  --view-long-edge VIEW_LONG_EDGE
+                        Interactive preview long edge in pixels (default: 800)
+  --no-hud              Start with the on-screen controls/status overlay
+                        hidden
+  --project PROJECT     Project JSON path written only after 'Use this view'
+                        (default: results/panopilot_project.json)
+  --seek-step-ms SEEK_STEP_MS
+                        Left/right arrow seek increment in milliseconds
+                        (default: 100)
+  --preview-fps PREVIEW_FPS
+                        Prepared panoramic preview frame rate (default: 20)
+  --level-smoothing-ms LEVEL_SMOOTHING_MS
+                        Horizon smoothing used while preparing the preview
+                        cache
+  --cache-dir CACHE_DIR
+                        Optional preview-cache directory (default: XDG user
+                        cache)
+  --rebuild-preview     Rebuild the panoramic editing preview even if a valid
+                        cache exists
+  --no-preview-cache    Debug only: use original-source synchronous seeks
+                        instead of the cache
+  --no-playback-audio   Disable audio during cached playback
