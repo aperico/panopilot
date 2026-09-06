@@ -532,6 +532,12 @@ def _cmd_project_export(args):
         vaapi_device=(
             args.vaapi_device
         ),
+        projection_prefetch=(
+            args.projection_prefetch
+        ),
+        render_pipeline=(
+            args.render_pipeline
+        ),
         progress_callback=progress,
     )
 
@@ -1103,6 +1109,27 @@ def build_parser():
             "Optional VAAPI device, e.g. /dev/dri/renderD128; "
             "auto discovers render nodes when omitted"
         ),
+    )
+    project_export.add_argument(
+        "--render-pipeline",
+        choices=("panorama", "direct"),
+        default="panorama",
+        help=(
+            "Final image pipeline: accepted panorama baseline or experimental "
+            "direct dual-lens renderer (default: panorama)"
+        ),
+    )
+    project_export.add_argument(
+        "--no-projection-prefetch",
+        action="store_false",
+        dest="projection_prefetch",
+        help=(
+            "Disable one-frame-ahead projection-map generation "
+            "for A/B benchmarking"
+        ),
+    )
+    project_export.set_defaults(
+        projection_prefetch=True,
     )
     project_export.add_argument(
         "--report",

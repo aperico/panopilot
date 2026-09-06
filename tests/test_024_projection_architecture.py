@@ -43,7 +43,11 @@ def test_export_reports_projection_substages():
     )
 
     assert (
-        '"map_generation"'
+        '"map_generation_worker"'
+        in source
+    )
+    assert (
+        '"projection_map_wait"'
         in source
     )
     assert (

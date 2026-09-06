@@ -1,6 +1,6 @@
 # PanoPilot
 
-Current internal version: `0.26.0`
+Current internal version: `0.28.0`
 
 # 0.18 — Multi-Clip sequential project editing
 
@@ -1498,3 +1498,86 @@ fall back.
 The export report records backend, device, fallback state, and selection reason
 for every Clip.
 
+
+
+# 0.27 — One-Frame-Ahead Projection Map Pipeline
+
+The 0.26 A/B benchmark showed that runtime-tested VAAPI is useful:
+
+```text
+VAAPI auto: 37.46 s, 18.98 fps, decoder wait 5.29 s
+software:   41.35 s, 17.19 fps, decoder wait 13.50 s
+```
+
+VAAPI remains the default automatic choice when its exact source-specific
+runtime smoke test passes.
+
+The remaining large CPU stages are projection-map generation and factory
+stitching. 0.27 overlaps those independent operations instead of changing
+geometry.
+
+```text
+worker:
+    map N+1
+       │
+       │ overlaps
+       ▼
+main:
+    decode N → stitch N → consume map N → remap N → encode N
+```
+
+The pipeline is deliberately bounded to one worker and one outstanding pair of
+output-resolution maps.
+
+Rendering semantics are unchanged: every map still comes from the canonical
+`RectilinearProjector.map()` function.
+
+The report now distinguishes concurrent map CPU time from actual critical-path
+wait:
+
+```text
+projection_breakdown.map_generation_worker
+projection_map_wait
+projection_breakdown.panorama_remap
+```
+
+For a controlled A/B run:
+
+```bash
+--no-projection-prefetch
+```
+
+Benchmark:
+
+```bash
+panopilot project-export \
+  results/panopilot_project.json \
+  -o results/final-027-benchmark.mp4 \
+  --report results/export-performance-027.json
+```
+
+
+# 0.28 — Direct Dual-Lens Final-Render Spike
+
+0.28 adds an experimental final renderer that removes the full 3840×1920
+intermediate panorama from final export. The accepted panorama renderer remains
+the default.
+
+```text
+Accepted: lens0/lens1 -> full panorama -> Camera/horizon remap -> delivery
+Direct:   Camera/horizon map -> compose factory lens maps -> lens0/lens1
+          remap directly to delivery -> seam blend
+```
+
+Run the experimental path with:
+
+```bash
+panopilot project-export \
+  results/panopilot_project.json \
+  -o results/final-028-direct.mp4 \
+  --render-pipeline direct \
+  --report results/export-performance-028-direct.json
+```
+
+The direct path changes sampling order, so promotion to the default requires a
+representative visual comparison plus a material wall-time improvement.

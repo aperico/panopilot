@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.28.0
+
+- Adds an experimental direct dual-lens final-render pipeline.
+- Composes dynamic Camera/horizon maps with static factory calibration maps.
+- Remaps original lens frames directly to delivery resolution.
+- Avoids full intermediate panorama construction in direct mode.
+- Keeps the accepted panorama renderer as the default.
+- Adds `--render-pipeline panorama|direct`.
+- Adds direct-map/render timing diagnostics and regression tests.
+
+## 0.27.0
+
+- Retains VAAPI after the 0.26 A/B benchmark reduced decoder blocking from
+  13.50 s to 5.29 s.
+- Adds bounded one-frame-ahead projection-map generation.
+- Overlaps dynamic map CPU work with current-frame decode and factory stitch.
+- Uses one worker and one outstanding map only.
+- Preserves canonical `RectilinearProjector.map()` output exactly.
+- Adds serialized `projection_map_wait` timing and concurrent
+  `map_generation_worker` timing.
+- Adds `--no-projection-prefetch` for A/B benchmarking.
+- Updates engineering documentation through 0.27.
+
 ## 0.26.0
 
 - Targets the measured 0.25 dominant stage: lens decoder read/wait.

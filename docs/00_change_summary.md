@@ -1,7 +1,7 @@
 # PanoPilot — Documentation Change Summary
 
 Status: Updated  
-Release alignment: PanoPilot 0.26.0
+Release alignment: PanoPilot 0.28.0
 Date: 2026-09-06
 
 ## Documents
@@ -140,3 +140,18 @@ unimplemented end-to-end capability.
 - safe software fallback in automatic mode;
 - explicit decoder backend/device CLI controls;
 - per-Clip decoder diagnostics and probe timing.
+
+
+## PanoPilot 0.27 additions
+
+- bounded one-frame-ahead projection-map pipeline;
+- map CPU work overlapped with decode/stitch;
+- concurrent worker-time and critical-path wait diagnostics;
+- projection-prefetch A/B control.
+
+
+## PanoPilot 0.28 additions
+
+- experimental direct dual-lens-to-delivery-frame renderer;
+- no full intermediate panorama in direct mode;
+- explicit accepted-baseline versus experimental render-pipeline selection.

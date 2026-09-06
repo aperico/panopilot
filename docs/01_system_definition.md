@@ -1,7 +1,7 @@
 # PanoPilot — System Definition
 
 Status: Draft  
-Baseline: SD-0.15
+Baseline: SD-0.17
 Scope: Iteration 1
 
 ---
@@ -1189,3 +1189,21 @@ one-frame dual-lens decode path successfully completes.
 Automatic failure returns to the software compatibility baseline. Project,
 Camera, trim, View Path, stitch, and output semantics are independent from the
 selected decoder backend.
+
+---
+
+# 28. Export Pipeline Concurrency — PanoPilot 0.27
+
+Projection-map generation depends on Camera and horizon state but not on decoded
+image pixels. PanoPilot may execute the next frame's map generation concurrently
+with current-frame decode/stitch.
+
+Concurrency is bounded to one worker and one outstanding map. Project Time,
+Camera state, horizon state, and projection geometry remain unchanged.
+
+
+---
+
+# 29. Direct Final Rendering — PanoPilot 0.28
+
+PanoPilot contains an accepted `panorama` final renderer and an experimental `direct` renderer. The direct renderer composes the dynamic Camera/horizon sampling map with static factory calibration maps and samples both original lens frames directly at delivery resolution. It is not authoritative until representative visual/performance acceptance is complete.

@@ -45,10 +45,14 @@ from .dji import (
     orientation_from_samples,
 )
 from .factory import FactoryCalibratedMapper
+from .direct_render import DirectLensRenderer, DirectMapPrefetcher
 from .output_profile import output_profile_for_project
 from .performance import (
     StageProfiler,
     dominant_stage,
+)
+from .projection_prefetch import (
+    ProjectionMapPrefetcher,
 )
 from .project import load_project
 from .source import (
@@ -752,6 +756,8 @@ def _render_video_stream(
     preset,
     decoder_mode,
     vaapi_device,
+    projection_prefetch,
+    render_pipeline,
     progress_callback,
 ):
     encoder = subprocess.Popen(
@@ -774,9 +780,13 @@ def _render_video_stream(
         int(profile.width),
         int(profile.height),
     )
+    render_pipeline = str(render_pipeline).lower()
+    if render_pipeline not in ("panorama", "direct"):
+        raise ValueError("render_pipeline must be 'panorama' or 'direct'")
 
     video_profiler = StageProfiler()
     projection_profiler = StageProfiler()
+    direct_profiler = StageProfiler()
 
     rendered_frames = 0
     total_frames = sum(
@@ -785,6 +795,59 @@ def _render_video_stream(
     )
     started = time.perf_counter()
     clip_summaries = []
+
+    def projection_state(
+        clip,
+        local_index,
+        exposure_times,
+        leveled_gravity,
+    ):
+        content_rotation = None
+
+        if level_horizon:
+            with video_profiler.measure(
+                "horizon_rotation_math"
+            ):
+                (
+                    content_rotation,
+                    _diagnostics,
+                ) = (
+                    horizon_correction_from_gravity(
+                        leveled_gravity[
+                            local_index
+                        ],
+                        strength=(
+                            level_strength
+                        ),
+                    )
+                )
+
+        source_time = float(
+            exposure_times[
+                local_index
+            ]
+        )
+
+        with video_profiler.measure(
+            "view_path_evaluation"
+        ):
+            sample = (
+                evaluate_clip_view_path(
+                    clip,
+                    source_time,
+                    interpolation=(
+                        project.camera_motion_easing
+                    ),
+                    strength=(
+                        project.camera_motion_strength
+                    ),
+                )
+            )
+
+        return (
+            content_rotation,
+            sample.camera,
+        )
 
     try:
         for group_number, group in enumerate(
@@ -917,6 +980,11 @@ def _render_video_stream(
                         panorama_height
                     ),
                 )
+                direct_renderer = (
+                    DirectLensRenderer(mapper)
+                    if render_pipeline == "direct"
+                    else None
+                )
 
             decode_duration = (
                 float(group.frame_count)
@@ -1021,197 +1089,159 @@ def _render_video_stream(
             )
             clip_frames = 0
 
-            try:
-                for local_index in range(
-                    group.frame_count
-                ):
-                    with video_profiler.measure(
-                        "decoder_read_wait"
-                    ):
-                        raw = _read_exact(
-                            decoder_process.stdout,
-                            frame_bytes,
-                        )
-
-                    if raw is None:
-                        raise RuntimeError(
-                            "FFmpeg lens decoder ended before the "
-                            f"expected frame count for {clip.id}: "
-                            f"{local_index}/{group.frame_count}"
-                        )
-
-                    stacked = np.frombuffer(
-                        raw,
-                        dtype=np.uint8,
-                    ).reshape(
-                        source_height,
-                        stacked_width,
-                        3,
+            if render_pipeline == "panorama":
+                with ProjectionMapPrefetcher(
+                    projector,
+                    enabled=(projection_prefetch),
+                ) as map_prefetcher:
+                    first_rotation, first_camera = projection_state(
+                        clip, 0, exposure_times, leveled_gravity
                     )
-                    lens0 = stacked[
-                        :,
-                        :source_width,
-                    ]
-                    lens1 = stacked[
-                        :,
-                        source_width:,
-                    ]
-
-                    with video_profiler.measure(
-                        "factory_stitch"
-                    ):
-                        panorama = mapper.stitch(
-                            lens0,
-                            lens1,
-                        )
-
-                    content_rotation = None
-
-                    if level_horizon:
-                        with video_profiler.measure(
-                            "horizon_rotation_math"
-                        ):
-                            (
-                                content_rotation,
-                                _diagnostics,
-                            ) = (
-                                horizon_correction_from_gravity(
-                                    leveled_gravity[
-                                        local_index
-                                    ],
-                                    strength=(
-                                        level_strength
-                                    ),
-                                )
-                            )
-
-                    source_time = float(
-                        exposure_times[
-                            local_index
-                        ]
-                    )
-                    with video_profiler.measure(
-                        "view_path_evaluation"
-                    ):
-                        sample = (
-                            evaluate_clip_view_path(
-                                clip,
-                                source_time,
-                                interpolation=(
-                                    project.camera_motion_easing
-                                ),
-                                strength=(
-                                    project.camera_motion_strength
-                                ),
-                            )
-                        )
-
-                    # Compose horizon correction with the Virtual Camera
-                    # inverse mapping and sample the factory panorama only
-                    # once after stitch. This replaces the previous:
-                    #
-                    #   rotate full 3840x1920 panorama
-                    #   -> reframe to 1920x1080/1080x1920
-                    #
-                    # with one direct panorama -> rectilinear remap.
-                    with video_profiler.measure(
-                        "composed_projection"
-                    ):
-                        with projection_profiler.measure(
-                            "map_generation"
-                        ):
-                            (
-                                map_x,
-                                map_y,
-                            ) = projector.map(
-                                sample.camera,
-                                content_rotation=(
-                                    content_rotation
-                                ),
-                            )
-
-                        with projection_profiler.measure(
-                            "panorama_remap"
-                        ):
-                            frame = cv2.remap(
-                                panorama,
-                                map_x,
-                                map_y,
-                                interpolation=(
-                                    cv2.INTER_LINEAR
-                                ),
-                                borderMode=(
-                                    cv2.BORDER_REPLICATE
-                                ),
-                            )
-
+                    map_prefetcher.submit(first_camera, first_rotation)
                     try:
-                        with video_profiler.measure(
-                            "encoder_write_wait"
-                        ):
-                            encoder.stdin.write(
-                                frame.tobytes()
+                        for local_index in range(group.frame_count):
+                            with video_profiler.measure("decoder_read_wait"):
+                                raw = _read_exact(decoder_process.stdout, frame_bytes)
+                            if raw is None:
+                                raise RuntimeError(
+                                    "FFmpeg lens decoder ended before the expected frame count "
+                                    f"for {clip.id}: {local_index}/{group.frame_count}"
+                                )
+                            stacked=np.frombuffer(raw,dtype=np.uint8).reshape(
+                                source_height, stacked_width, 3
                             )
-                    except BrokenPipeError as exc:
-                        raise RuntimeError(
-                            "Final H.264 encoder stopped unexpectedly"
-                        ) from exc
+                            lens0=stacked[:,:source_width]
+                            lens1=stacked[:,source_width:]
 
-                    clip_frames += 1
-                    rendered_frames += 1
+                            with video_profiler.measure("factory_stitch"):
+                                panorama=mapper.stitch(lens0,lens1)
 
-                    if (
-                        rendered_frames == 1
-                        or rendered_frames
-                        == total_frames
-                        or rendered_frames % 15
-                        == 0
-                    ):
-                        percent = (
-                            100.0
-                            * rendered_frames
-                            / max(
-                                1,
-                                total_frames,
+                            with video_profiler.measure("projection_map_wait"):
+                                map_result=map_prefetcher.result()
+                            projection_profiler.add(
+                                "map_generation_worker", map_result.worker_seconds, calls=1
                             )
-                        )
-                        _emit(
-                            progress_callback,
-                            "render-frame",
-                            (
-                                f"Rendering final video — "
-                                f"{rendered_frames}/{total_frames} "
-                                f"frames ({percent:.1f}%)"
-                            ),
-                            frame=(
-                                rendered_frames
-                            ),
-                            total_frames=(
-                                total_frames
-                            ),
-                            percent=percent,
-                            clip_id=clip.id,
-                            source_time=(
-                                source_time
-                            ),
-                        )
 
-            finally:
-                if decoder_process.stdout:
-                    decoder_process.stdout.close()
+                            next_index=local_index+1
+                            if next_index < group.frame_count:
+                                next_rotation,next_camera=projection_state(
+                                    clip,next_index,exposure_times,leveled_gravity
+                                )
+                                map_prefetcher.submit(next_camera,next_rotation)
 
-                with video_profiler.measure(
-                    "decoder_finalize"
-                ):
-                    decoder_stderr = (
-                        decoder_process.stderr.read().decode(
-                            "utf-8",
-                            "replace",
-                        )
-                        if decoder_process.stderr
-                        else ""
+                            with video_profiler.measure("composed_projection"):
+                                with projection_profiler.measure("panorama_remap"):
+                                    frame=cv2.remap(
+                                        panorama,map_result.map_x,map_result.map_y,
+                                        interpolation=cv2.INTER_LINEAR,
+                                        borderMode=cv2.BORDER_REPLICATE,
+                                    )
+                            try:
+                                with video_profiler.measure("encoder_write_wait"):
+                                    encoder.stdin.write(frame.tobytes())
+                            except BrokenPipeError as exc:
+                                raise RuntimeError(
+                                    "Final H.264 encoder stopped unexpectedly"
+                                ) from exc
+
+                            clip_frames += 1
+                            rendered_frames += 1
+                            source_time=float(exposure_times[local_index])
+                            if (rendered_frames == 1 or rendered_frames == total_frames
+                                    or rendered_frames % 15 == 0):
+                                percent=100.0*rendered_frames/max(1,total_frames)
+                                _emit(
+                                    progress_callback,"render-frame",
+                                    f"Rendering final video — {rendered_frames}/{total_frames} "
+                                    f"frames ({percent:.1f}%)",
+                                    frame=rendered_frames,total_frames=total_frames,
+                                    percent=percent,clip_id=clip.id,source_time=source_time,
+                                )
+                    finally:
+                        if decoder_process.stdout:
+                            decoder_process.stdout.close()
+                        with video_profiler.measure("decoder_finalize"):
+                            decoder_stderr=(
+                                decoder_process.stderr.read().decode("utf-8","replace")
+                                if decoder_process.stderr else ""
+                            )
+                            decoder_process.wait()
+            else:
+                with DirectMapPrefetcher(
+                    projector,
+                    direct_renderer,
+                    enabled=(projection_prefetch),
+                ) as direct_prefetcher:
+                    first_rotation, first_camera = projection_state(
+                        clip, 0, exposure_times, leveled_gravity
                     )
-                    decoder_process.wait()
+                    direct_prefetcher.submit(first_camera, first_rotation)
+                    try:
+                        for local_index in range(group.frame_count):
+                            with video_profiler.measure("decoder_read_wait"):
+                                raw=_read_exact(decoder_process.stdout,frame_bytes)
+                            if raw is None:
+                                raise RuntimeError(
+                                    "FFmpeg lens decoder ended before the expected frame count "
+                                    f"for {clip.id}: {local_index}/{group.frame_count}"
+                                )
+                            stacked=np.frombuffer(raw,dtype=np.uint8).reshape(
+                                source_height,stacked_width,3
+                            )
+                            lens0=stacked[:,:source_width]
+                            lens1=stacked[:,source_width:]
+
+                            with video_profiler.measure("direct_map_wait"):
+                                direct_result=direct_prefetcher.result()
+                            direct_profiler.add(
+                                "projection_map_worker",direct_result.projection_seconds,calls=1
+                            )
+                            direct_profiler.add(
+                                "factory_map_compose_worker",direct_result.composition_seconds,calls=1
+                            )
+
+                            next_index=local_index+1
+                            if next_index < group.frame_count:
+                                next_rotation,next_camera=projection_state(
+                                    clip,next_index,exposure_times,leveled_gravity
+                                )
+                                direct_prefetcher.submit(next_camera,next_rotation)
+
+                            with video_profiler.measure("direct_lens_render"):
+                                with direct_profiler.measure("lens_remap_blend"):
+                                    frame=direct_renderer.render(
+                                        lens0,lens1,direct_result.maps
+                                    )
+                            try:
+                                with video_profiler.measure("encoder_write_wait"):
+                                    encoder.stdin.write(frame.tobytes())
+                            except BrokenPipeError as exc:
+                                raise RuntimeError(
+                                    "Final H.264 encoder stopped unexpectedly"
+                                ) from exc
+
+                            clip_frames += 1
+                            rendered_frames += 1
+                            source_time=float(exposure_times[local_index])
+                            if (rendered_frames == 1 or rendered_frames == total_frames
+                                    or rendered_frames % 15 == 0):
+                                percent=100.0*rendered_frames/max(1,total_frames)
+                                _emit(
+                                    progress_callback,"render-frame",
+                                    f"Rendering final video — {rendered_frames}/{total_frames} "
+                                    f"frames ({percent:.1f}%)",
+                                    frame=rendered_frames,total_frames=total_frames,
+                                    percent=percent,clip_id=clip.id,source_time=source_time,
+                                )
+                    finally:
+                        if decoder_process.stdout:
+                            decoder_process.stdout.close()
+                        with video_profiler.measure("decoder_finalize"):
+                            decoder_stderr=(
+                                decoder_process.stderr.read().decode("utf-8","replace")
+                                if decoder_process.stderr else ""
+                            )
+                            decoder_process.wait()
 
             if decoder_process.returncode != 0:
                 raise RuntimeError(
@@ -1323,17 +1353,44 @@ def _render_video_stream(
                 decoder_counts
             ),
         },
+        "render_pipeline": str(render_pipeline),
         "projection_pipeline": (
             "factory-panorama -> composed-horizon-camera -> rectilinear"
+            if render_pipeline == "panorama"
+            else (
+                "dynamic-camera-map -> composed-factory-lens-maps "
+                "-> direct-dual-lens-remap-blend"
+            )
         ),
-        "post_stitch_resamples_per_frame": 1,
+        "full_panorama_constructed_per_frame": (
+            render_pipeline == "panorama"
+        ),
+        "post_stitch_resamples_per_frame": (
+            1 if render_pipeline == "panorama" else 0
+        ),
         "projection_kernel": (
             "float32-analytic-composed-map"
         ),
+        "projection_prefetch": {
+            "enabled": bool(
+                projection_prefetch
+            ),
+            "depth_frames": (
+                1
+                if projection_prefetch
+                else 0
+            ),
+            "worker_count": (
+                1
+                if projection_prefetch
+                else 0
+            ),
+        },
         "projection_breakdown": (
-            projection_profiler.summary(
-                total_seconds=elapsed,
-            )
+            projection_profiler.summary(total_seconds=elapsed)
+        ),
+        "direct_render_breakdown": (
+            direct_profiler.summary(total_seconds=elapsed)
         ),
         "stage_timings": stage_timings,
         "dominant_stage": dominant,
@@ -1723,6 +1780,8 @@ def export_project_video(
     preset="medium",
     decoder="auto",
     vaapi_device=None,
+    projection_prefetch=True,
+    render_pipeline="panorama",
     progress_callback=None,
 ):
     project_path = Path(
@@ -1748,9 +1807,10 @@ def export_project_video(
     panorama_height = int(
         panorama_height
     )
-    decoder = str(
-        decoder
-    ).lower()
+    decoder = str(decoder).lower()
+    render_pipeline = str(render_pipeline).lower()
+    if render_pipeline not in ("panorama", "direct"):
+        raise ValueError("render_pipeline must be 'panorama' or 'direct'")
 
     if decoder not in (
         "auto",
@@ -1927,6 +1987,12 @@ def export_project_video(
                         ),
                         vaapi_device=(
                             vaapi_device
+                        ),
+                        projection_prefetch=(
+                            projection_prefetch
+                        ),
+                        render_pipeline=(
+                            render_pipeline
                         ),
                         progress_callback=(
                             progress_callback
@@ -2123,6 +2189,8 @@ def export_project_video(
                 project.camera_motion_strength
             ),
         },
+        "projection_prefetch": bool(projection_prefetch),
+        "render_pipeline": str(render_pipeline),
         "decoder": {
             "requested": str(
                 decoder

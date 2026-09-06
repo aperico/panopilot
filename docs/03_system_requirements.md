@@ -1,7 +1,7 @@
 # PanoPilot — System Requirements
 
 Status: Draft  
-Baseline: SYS-0.17
+Baseline: SYS-0.19
 Scope: Iteration 1  
 Parent: `01_system_definition.md`  
 Use Cases: `02_use_cases.md`
@@ -1619,3 +1619,53 @@ selected VAAPI device when applicable, fallback state, and selection reason.
 **Priority:** SHOULD  
 **Verification:** Test  
 **Trace:** UC-13
+
+---
+
+# 33. Projection Pipeline Requirements — PanoPilot 0.27
+
+## SYS-PERF-022 — One-Frame Projection Prefetch
+
+When projection prefetch is enabled, PanoPilot shall permit map generation for
+the next output frame to overlap current-frame decode/stitch processing.
+
+**Priority:** SHOULD  
+**Verification:** Test  
+**Trace:** UC-13
+
+## SYS-PERF-023 — Bounded Projection Prefetch
+
+Projection prefetch shall use no more than one worker and one outstanding map.
+
+**Priority:** MUST  
+**Verification:** Inspection, Test  
+**Trace:** UC-13
+
+## SYS-PERF-024 — Prefetch Semantic Equivalence
+
+A projection map produced through the prefetch path shall be identical to the
+sequential result from the same canonical projector and inputs.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-13
+
+
+---
+
+# 34. Direct Renderer Requirements — PanoPilot 0.28
+
+## SYS-PERF-025 — Direct Lens Final Rendering
+
+When direct rendering is selected, PanoPilot shall generate the delivery frame from the original two lens frames without constructing a full-resolution intermediate panorama.
+
+**Priority:** SHOULD  
+**Verification:** Test  
+**Trace:** UC-13
+
+## SYS-PERF-026 — Accepted Renderer Preservation
+
+Until direct-render acceptance is complete, PanoPilot shall retain the panorama renderer as the default final export pipeline.
+
+**Priority:** MUST  
+**Verification:** Inspection

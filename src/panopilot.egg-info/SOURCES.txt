@@ -4,6 +4,7 @@ src/panopilot/__init__.py
 src/panopilot/attitude.py
 src/panopilot/cache.py
 src/panopilot/cli.py
+src/panopilot/direct_render.py
 src/panopilot/dji.py
 src/panopilot/explore.py
 src/panopilot/factory.py
@@ -18,6 +19,7 @@ src/panopilot/project.py
 src/panopilot/project_editor.py
 src/panopilot/project_export.py
 src/panopilot/project_player.py
+src/panopilot/projection_prefetch.py
 src/panopilot/recovery.py
 src/panopilot/reframe.py
 src/panopilot/session.py
@@ -82,6 +84,13 @@ tests/test_025_projector_wrap.py
 tests/test_026_decoder_architecture.py
 tests/test_026_decoder_backend.py
 tests/test_026_decoder_cli.py
+tests/test_027_projection_prefetch.py
+tests/test_027_projection_prefetch_architecture.py
+tests/test_027_projection_prefetch_cli.py
+tests/test_028_direct_architecture.py
+tests/test_028_direct_cli.py
+tests/test_028_direct_prefetch.py
+tests/test_028_direct_render.py
 tests/test_attitude.py
 tests/test_cache.py
 tests/test_dji.py

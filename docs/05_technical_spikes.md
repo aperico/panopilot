@@ -1,7 +1,7 @@
 # PanoPilot — Technical Spikes
 
 Status: Draft  
-Baseline: TS-0.9
+Baseline: TS-0.11
 Scope: Iteration 1 Architecture Validation  
 Parent: `04_functional_architecture.md`
 
@@ -1264,3 +1264,22 @@ encoder write             9.0%
 
 Decoder wait is now the largest measured stage, so 0.26 introduces
 runtime-tested VAAPI decode before pursuing more invasive geometry fusion.
+
+---
+
+# 22. 0.26 A/B Result and 0.27 Decision
+
+The representative 0.26 A/B run measured 37.46 s with VAAPI versus 41.35 s
+with software decoding. VAAPI reduced decoder-read blocking from 13.50 s to
+5.29 s.
+
+Before introducing direct lens-to-output geometry, 0.27 tests a lower-risk
+scheduling optimization: overlap next-frame projection-map generation with
+current-frame decode/stitch.
+
+
+---
+
+# 23. Direct Final Renderer Spike — PanoPilot 0.28
+
+The representative 0.27 no-prefetch run measured projection-map wait at 12.81 s and factory stitch at 11.46 s. This is sufficient evidence to spike removal of the full intermediate panorama while preserving the existing renderer as the reference.

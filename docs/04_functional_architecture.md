@@ -1,7 +1,7 @@
 # PanoPilot — Functional Architecture
 
 Status: Draft  
-Baseline: FA-0.11
+Baseline: FA-0.13
 Scope: Iteration 1  
 Parent: `01_system_definition.md`  
 Use Cases: `02_use_cases.md`  
@@ -1789,3 +1789,28 @@ Decoder Selector
 
 Both backends expose the same software BGR lens-frame boundary to factory
 stitching. No hardware frame object crosses into Project rendering semantics.
+
+---
+
+# 48. Projection Map Pipeline — PanoPilot 0.27
+
+```text
+Camera/Horizon N+1 → Map Worker (1)
+                         │
+decode N → stitch N → consume map N → remap N → encode N
+```
+
+The worker owns no Project state. It receives immutable frame inputs and calls
+the canonical projector. Only one future may exist at a time.
+
+
+---
+
+# 49. Direct Final Image Pipeline — PanoPilot 0.28
+
+```text
+Camera+horizon -> equirectangular output map -> compose factory lens maps
+               -> two delivery-resolution lens remaps -> seam blend
+```
+
+Project Time, View Path, Camera Motion, horizon correction, decoder, audio, encoder and verification are shared with the accepted pipeline.
