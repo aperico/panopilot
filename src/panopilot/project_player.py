@@ -396,6 +396,10 @@ def run_project_preview(
     spans = list(
         prepared["spans"]
     )
+    span_by_clip_id = {
+        span.clip_id: span
+        for span in spans
+    }
     project_duration = float(
         prepared["project_duration"]
     )
@@ -1077,12 +1081,74 @@ def run_project_preview(
             if not state["playing"]:
                 return
 
-            target = (
-                self._play_anchor_project
-                + (
-                    time.perf_counter()
-                    - self._play_anchor_wall
+            # When Qt Multimedia is available, audio position is the playback
+            # clock. The conventional video frame is selected from that same
+            # source-time position, bounding A/V error primarily to the 20 fps
+            # preview frame quantum and the PreciseTimer update interval.
+            #
+            # During a just-issued media seek Qt may transiently report a
+            # position outside the active Clip range; in that short interval
+            # the monotonic anchor remains the deterministic fallback.
+            target = None
+
+            if (
+                self.media_player is not None
+                and self._audio_clip_id is not None
+            ):
+                span = span_by_clip_id.get(
+                    self._audio_clip_id
                 )
+
+                if span is not None:
+                    audio_source_time = (
+                        float(
+                            self.media_player.position()
+                        )
+                        / 1000.0
+                    )
+                    tolerance = max(
+                        0.075,
+                        1.5
+                        / max(
+                            1.0,
+                            float(
+                                preview_fps
+                            ),
+                        ),
+                    )
+
+                    if (
+                        span.source_in
+                        - tolerance
+                        <= audio_source_time
+                        <= span.source_out
+                        + tolerance
+                    ):
+                        target = (
+                            span.timeline_start
+                            + (
+                                audio_source_time
+                                - span.source_in
+                            )
+                        )
+
+            if target is None:
+                target = (
+                    self._play_anchor_project
+                    + (
+                        time.perf_counter()
+                        - self._play_anchor_wall
+                    )
+                )
+
+            target = max(
+                0.0,
+                min(
+                    float(
+                        target
+                    ),
+                    project_duration,
+                ),
             )
 
             if (

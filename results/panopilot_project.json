@@ -1,19 +1,72 @@
 {
-  "schema_version": 8,
+  "schema_version": 10,
+  "name": "Test Project",
   "output_frame": {
     "aspect": "16:9",
     "resolution": "1080p",
-    "quality": "very-high"
+    "quality": "very-high",
+    "fps": "25"
   },
   "camera_motion": {
     "easing": "ease-in-out",
     "strength": 1.0
   },
   "stabilization": {
-    "amount": 0.0,
+    "amount": 0.75,
     "algorithm": "adaptive-highrate-v1"
   },
   "clips": [
+    {
+      "id": "clip-3",
+      "source": "/home/aperico/Videos/osmo/CAM_20260829104410_0007_D.OSV",
+      "source_identity": {
+        "algorithm": "sampled-sha256-v1",
+        "size": 10411550,
+        "fingerprint": "9c2a30c0d07b06cdbfd78c621c44937ec44fc8878c8d277737a236a09d611d9a",
+        "sample_bytes": 1048576,
+        "sample_offsets": [
+          0,
+          4681487,
+          9362974
+        ],
+        "resolved_path": "/home/aperico/Videos/osmo/CAM_20260829104410_0007_D.OSV",
+        "mtime_ns": 1788011052150000000
+      },
+      "trim": {
+        "in_source_time": 0.0,
+        "out_source_time": null
+      },
+      "camera_positions": [
+        {
+          "source_time": 0.0,
+          "yaw_deg": -129.96826171875014,
+          "pitch_deg": 12.568359374999995,
+          "fov_deg": 90.0,
+          "roll_deg": 0.0
+        },
+        {
+          "source_time": 0.05,
+          "yaw_deg": -129.96826171875014,
+          "pitch_deg": 12.568359374999995,
+          "fov_deg": 90.0,
+          "roll_deg": 0.0
+        },
+        {
+          "source_time": 0.55,
+          "yaw_deg": -129.96826171875014,
+          "pitch_deg": 12.568359374999995,
+          "fov_deg": 90.0,
+          "roll_deg": 15.0
+        },
+        {
+          "source_time": 0.6149961812499999,
+          "yaw_deg": -129.96826171875014,
+          "pitch_deg": 12.568359374999995,
+          "fov_deg": 90.0,
+          "roll_deg": 15.0
+        }
+      ]
+    },
     {
       "id": "clip-2",
       "source": "/home/aperico/Videos/osmo/CAM_20260829102703_0003_D.OSV",
@@ -43,7 +96,14 @@
           "roll_deg": 0.0
         },
         {
-          "source_time": 2.15,
+          "source_time": 2.0988072359834558,
+          "yaw_deg": 99.65112304687489,
+          "pitch_deg": 24.916259765624993,
+          "fov_deg": 120.0,
+          "roll_deg": 0.0
+        },
+        {
+          "source_time": 3.0,
           "yaw_deg": 99.65112304687489,
           "pitch_deg": 24.916259765624993,
           "fov_deg": 120.0,
@@ -64,9 +124,30 @@
           "roll_deg": 0.0
         },
         {
+          "source_time": 7.65,
+          "yaw_deg": 49.15439013061817,
+          "pitch_deg": -4.556180941227645,
+          "fov_deg": 120.0,
+          "roll_deg": 0.0
+        },
+        {
           "source_time": 8.1,
-          "yaw_deg": 85.91616210937468,
-          "pitch_deg": 25.13774414062501,
+          "yaw_deg": 82.34569824946408,
+          "pitch_deg": -17.30508838545547,
+          "fov_deg": 120.0,
+          "roll_deg": 0.0
+        },
+        {
+          "source_time": 9.6,
+          "yaw_deg": 91.20963468672716,
+          "pitch_deg": 25.369295505187004,
+          "fov_deg": 120.0,
+          "roll_deg": 0.0
+        },
+        {
+          "source_time": 13.2,
+          "yaw_deg": 122.28864720624489,
+          "pitch_deg": -11.180258010432174,
           "fov_deg": 120.0,
           "roll_deg": 0.0
         }
@@ -94,6 +175,13 @@
       },
       "camera_positions": [
         {
+          "source_time": 0.0,
+          "yaw_deg": 113.34883119639039,
+          "pitch_deg": -18.008593749999992,
+          "fov_deg": 120.0,
+          "roll_deg": 10.0
+        },
+        {
           "source_time": 1.35,
           "yaw_deg": 90.95097656249993,
           "pitch_deg": 2.4263671874999995,
@@ -112,36 +200,6 @@
           "yaw_deg": 126.98613281250016,
           "pitch_deg": -10.73261718749999,
           "fov_deg": 120.0,
-          "roll_deg": 0.0
-        }
-      ]
-    },
-    {
-      "id": "clip-3",
-      "source": "/home/aperico/Videos/osmo/CAM_20260829104410_0007_D.OSV",
-      "source_identity": {
-        "algorithm": "sampled-sha256-v1",
-        "size": 10411550,
-        "fingerprint": "9c2a30c0d07b06cdbfd78c621c44937ec44fc8878c8d277737a236a09d611d9a",
-        "sample_bytes": 1048576,
-        "sample_offsets": [
-          0,
-          4681487,
-          9362974
-        ],
-        "resolved_path": "/home/aperico/Videos/osmo/CAM_20260829104410_0007_D.OSV",
-        "mtime_ns": 1788011052150000000
-      },
-      "trim": {
-        "in_source_time": 0.0,
-        "out_source_time": null
-      },
-      "camera_positions": [
-        {
-          "source_time": 0.05,
-          "yaw_deg": -129.96826171875014,
-          "pitch_deg": 12.568359374999995,
-          "fov_deg": 90.0,
           "roll_deg": 0.0
         }
       ]

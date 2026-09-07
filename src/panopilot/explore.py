@@ -5,10 +5,14 @@ Interactive PanoPilot desktop editor.
 playback.  The original OSV remains immutable and authoritative for final
 rendering.
 
-Editing invariant:
+Editing invariant (0.50):
 
-    seek / play / drag / wheel / reset = exploration/navigation
-    Enter / Return                     = explicit edit (Use this view)
+    seek / play                         = navigation
+    Enter / Return                      = create Camera Position at playhead
+    drag / wheel / fine camera controls = update closest Camera Position left
+                                          when one exists
+
+A continuous direct-manipulation gesture remains one logical edit transaction.
 
 Space is now the conventional Play/Pause shortcut.
 
@@ -26,6 +30,9 @@ import time
 
 import cv2
 
+from .branding import application_icon_path, set_application_icon
+from .desktop_theme import WORKSPACE_STYLESHEET
+from .thumbnails import filmstrip_tile_geometry, sample_video_thumbnails_range
 from .cache import (
     PanoramaCacheReader,
     PreviewProfile,
@@ -37,6 +44,7 @@ from .project import assert_project_sources, load_project
 from .session import ProjectSession
 from .virtual_camera import VirtualCamera, reframe_equirectangular
 from .view_path import evaluate_clip_view_path
+from .timeline_navigation import TimelineViewport
 
 
 WINDOW_TITLE = "PanoPilot — Editor"
@@ -208,8 +216,8 @@ class ExploreState:
         """Precisely nudge the transient Virtual Camera orientation.
 
         Positive yaw looks right. Positive pitch looks up. Positive roll rotates the view clockwise. This is an
-        exploration/navigation operation only; it does not create or modify a
-        persisted Camera Position until the User explicitly selects Set Camera.
+        transient camera operation. The desktop Reframe presenter decides when
+        the resulting state is committed to the active Camera Position.
         """
         self.yaw_deg = self._wrap_yaw(
             self.yaw_deg
@@ -272,6 +280,8 @@ class ExploreWindow:
         landscape_size=(800, 450),
         portrait_size=(450, 800),
         show_hud=True,
+        initial_mode="reframe",
+        arrange_callback=None,
     ):
         if panorama is None:
             raise ValueError("panorama is required")
@@ -325,6 +335,8 @@ class ExploreWindow:
         self.landscape_size = tuple(int(v) for v in landscape_size)
         self.portrait_size = tuple(int(v) for v in portrait_size)
         self.show_hud = bool(show_hud)
+        self.initial_mode = str(initial_mode) if str(initial_mode) in ("reframe", "trim") else "reframe"
+        self.arrange_callback = arrange_callback
         self.last_render_seconds = None
         self.last_seek_seconds = None
         self.last_commit = None
@@ -376,6 +388,16 @@ class ExploreWindow:
             value >= self.trim_start - tolerance
             and value <= self.trim_end + tolerance
         )
+
+    @staticmethod
+    def monotonic_playback_target(anchor_source, anchor_wall, *, now=None):
+        """Return authoritative editor playback time from a monotonic clock.
+
+        Qt Multimedia remains responsible for audio output, but visual playback
+        must never stop because the media player's reported position stalls.
+        """
+        current = time.perf_counter() if now is None else float(now)
+        return max(0.0, float(anchor_source) + max(0.0, current - float(anchor_wall)))
 
     def playback_start_time(self):
         """Restart at Clip In when Play is pressed at/after Clip Out."""
@@ -804,28 +826,29 @@ class ExploreWindow:
         self.last_edit_message = "Unsaved changes discarded"
         return result
 
-    def use_this_view(self):
-        """
-        Set the current Virtual Camera as a Camera Position.
+    def camera_position_anchor_time(self, source_time=None):
+        """Return the closest saved Camera Position at or left of Source Time.
 
-        In the normal desktop editor, Camera Position creation/update is an
-        explicit persistence boundary: after the project transaction succeeds,
-        the project is atomically saved immediately. This prevents a visually
-        created Camera Position from disappearing merely because the user later
-        closes the Clip Editor without a separate Save action.
-
-        Undo history remains available. Undoing an auto-saved Camera Position
-        makes the project Modified again until saved/redone.
+        Reframing is segment-oriented: once a Camera Position exists, changing
+        the view anywhere to its right edits that left-hand position until the
+        next diamond is crossed.  This keeps the visible timeline marker as the
+        authoritative edit target and avoids creating accidental keyframes.
         """
+        value = self.source_time if source_time is None else float(source_time)
+        markers = sorted(set(self.marker_times) | set(self.dormant_marker_times))
+        candidates = [marker for marker in markers if marker <= value + 1e-6]
+        return None if not candidates else float(candidates[-1])
+
+    def _commit_view_at(self, source_time, *, automatic=False):
         if self.commit_callback is None:
             raise RuntimeError(
                 "No Camera Position persistence callback was configured"
             )
 
         self.end_playback_view()
-
+        anchor_time = self._clamp_time(source_time)
         result = self.commit_callback(
-            source_time=self.source_time,
+            source_time=anchor_time,
             yaw_deg=self.state.yaw_deg,
             pitch_deg=self.state.pitch_deg,
             fov_deg=self.state.fov_deg,
@@ -835,48 +858,51 @@ class ExploreWindow:
 
         self.last_commit = result
         self.last_committed_snapshot = self.state.snapshot()
+        # Do not restore the persisted camera here. For an automatic update the
+        # playhead may be to the right of the Camera Position; the User should
+        # continue seeing the view they just manipulated at the current frame.
         self._apply_project_state(result)
 
         autosaved = False
-
-        if (
-            result.get("changed")
-            and self.save_callback is not None
-        ):
+        if result.get("changed") and self.save_callback is not None:
             save_result = self.save_callback()
-            self._apply_project_state(
-                save_result
-            )
-            self.saved_this_session = bool(
-                save_result.get("saved")
-            )
+            self._apply_project_state(save_result)
+            self.saved_this_session = bool(save_result.get("saved"))
             autosaved = self.saved_this_session
 
-        position_number = result.get(
-            "position_number"
-        )
-
+        position_number = result.get("position_number")
         if position_number is not None:
-            action = (
-                "created"
-                if result.get("created")
-                else "updated"
-            )
-            persistence = (
-                "saved"
-                if autosaved
-                else "set"
-            )
+            action = "created" if result.get("created") else "updated"
+            persistence = "saved" if autosaved else "set"
+            automatic_text = " automatically" if automatic else ""
             self.last_edit_message = (
                 f"Camera Position {int(position_number):02d} "
-                f"{action} and {persistence} @ "
-                f"{format_time(self.source_time)}"
+                f"{action} and {persistence}{automatic_text} @ {format_time(anchor_time)}"
             )
 
-        return {
-            **result,
-            "autosaved": bool(autosaved),
-        }
+        return {**result, "autosaved": bool(autosaved), "anchor_time": anchor_time}
+
+    def use_this_view(self):
+        """Create/update a Camera Position at the current Source Time."""
+        return self._commit_view_at(self.source_time, automatic=False)
+
+    def update_left_camera_position(self):
+        """Persist the current view into the closest Camera Position to the left.
+
+        Returns a no-op result when there is no left-hand Camera Position. The
+        explicit Add / Update action remains the way to create the first marker.
+        """
+        anchor = self.camera_position_anchor_time()
+        if anchor is None:
+            self.last_edit_message = (
+                "No Camera Position to the left — add one before reframing"
+            )
+            return {
+                "changed": False,
+                "reason": "no-camera-position-to-left",
+                "anchor_time": None,
+            }
+        return self._commit_view_at(anchor, automatic=True)
 
     def begin_playback_view(self):
         """
@@ -997,7 +1023,7 @@ class ExploreWindow:
         ):
             status = (
                 "PREVIEW PLAYBACK — unsaved camera hold; "
-                "Set Camera to persist"
+                "add a Camera Position to persist"
             )
         elif self.playing:
             status = "PLAYBACK — Clip View Path"
@@ -1009,10 +1035,17 @@ class ExploreWindow:
             else:
                 status = "PROJECT MODIFIED — Ctrl+S to save"
         else:
-            status = (
-                "EXPLORE — project saved; transient camera movement "
-                "does not require Save"
-            )
+            anchor = self.camera_position_anchor_time()
+            if anchor is None:
+                status = (
+                    "REFRAME — add a Camera Position; view changes before the first "
+                    "diamond remain preview-only"
+                )
+            else:
+                status = (
+                    "REFRAME — view edits auto-save to Camera Position @ "
+                    f"{format_time(anchor)}"
+                )
 
         lines = [
             status,
@@ -1071,15 +1104,69 @@ class ExploreWindow:
         self.last_render_seconds = time.perf_counter() - started
         return self._draw_hud(frame)
 
-    def run(self):
+    def result_state(self):
+        """Return the GUI-independent editor state snapshot.
+
+        Keeping result construction outside the Qt event-loop plumbing allows
+        embedded workspaces to close asynchronously without changing the
+        established single-Clip ``explore_osv`` result contract.
+        """
+        return {
+            "source_time": float(self.source_time),
+            "source_duration": self.source_duration,
+            "yaw_deg": float(self.state.yaw_deg),
+            "pitch_deg": float(self.state.pitch_deg),
+            "roll_deg": float(self.state.roll_deg),
+            "fov_deg": float(self.state.fov_deg),
+            "aspect": self.state.aspect,
+            "camera_position_markers": list(self.marker_times),
+            "dormant_camera_position_markers": list(self.dormant_marker_times),
+            "camera_position_count": int(len(self.marker_times) + len(self.dormant_marker_times)),
+            "camera_motion": {
+                "easing": self.camera_motion_easing,
+                "strength": float(self.camera_motion_strength),
+            },
+            "trim_in_source_time": float(self.trim_start),
+            "trim_out_source_time": (
+                float(self.trim_out_source_time)
+                if self.trim_out_source_time is not None else None
+            ),
+            "resolved_trim_out_source_time": float(self.trim_end),
+            "clip_duration": float(self.clip_duration),
+            "clip_local_time": float(self.clip_local_time()),
+            "playback_fps": float(self.playback_fps),
+            "playback_view_mode": str(self.playback_view_mode),
+            "audio_clock": self.audio_clock,
+            "at_playback_end": bool(self.at_playback_end),
+            "last_render_ms": (
+                float(self.last_render_seconds * 1000.0)
+                if self.last_render_seconds is not None else None
+            ),
+            "last_seek_ms": (
+                float(self.last_seek_seconds * 1000.0)
+                if self.last_seek_seconds is not None else None
+            ),
+            "last_commit": self.last_commit,
+            "camera_exploration_changed": bool(self.camera_exploration_changed),
+            "project_dirty": bool(self.project_dirty),
+            "can_undo": bool(self.can_undo),
+            "can_redo": bool(self.can_redo),
+            "undo_label": self.undo_label,
+            "redo_label": self.redo_label,
+            "saved_this_session": bool(self.saved_this_session),
+            "ui_backend": "PySide6/Qt",
+        }
+
+    def run(self, *, embed_host=None, on_closed=None):
         try:
-            from PySide6.QtCore import QEventLoop, QTimer, QUrl, Qt
+            from PySide6.QtCore import QEvent, QEventLoop, QPointF, QTimer, QUrl, Qt
             from PySide6.QtGui import (
-                QColor, QImage, QKeyEvent, QMouseEvent,
-                QPainter, QPen, QPixmap, QWheelEvent,
+                QColor, QIcon, QImage, QKeyEvent, QMouseEvent,
+                QPainter, QPen, QPixmap, QPolygonF, QWheelEvent,
             )
             from PySide6.QtWidgets import (
                 QApplication,
+                QButtonGroup,
                 QComboBox,
                 QFrame,
                 QGridLayout,
@@ -1088,6 +1175,7 @@ class ExploreWindow:
                 QMessageBox,
                 QPushButton,
                 QSizePolicy,
+                QScrollBar,
                 QSlider,
                 QStyle,
                 QToolButton,
@@ -1100,9 +1188,10 @@ class ExploreWindow:
                 "Reinstall PanoPilot with 'pip install -e .'."
             ) from exc
 
-        # Qt Multimedia is optional at runtime.  When available, its playback
-        # position is the master clock and it also plays the source audio from
-        # the cached MP4.  The monotonic clock remains a deterministic fallback.
+        # Qt Multimedia is optional at runtime.  When available it plays the
+        # cached source audio, while the monotonic editor clock remains
+        # authoritative for visual playback progression. This avoids media-clock
+        # stalls truncating playback before Clip Out.
         QMediaPlayer = None
         QAudioOutput = None
         try:
@@ -1120,29 +1209,57 @@ class ExploreWindow:
                 self.setMinimumHeight(46)
                 self._camera_drag_from = None
                 self._camera_drag_to = None
+                self._camera_drag_moved = False
+                self._camera_press_x = None
                 self.setToolTip(
-                    "Seek on the source timeline. Drag a red or gray Camera "
-                    "Position marker horizontally to move its Source Time."
+                    "Seek on the source timeline. Click a Camera Position diamond "
+                    "to jump to it; drag the diamond to change its Source Time."
                 )
 
+            def _editor_owner(self):
+                widget = self.parentWidget()
+                while widget is not None:
+                    if hasattr(widget, "_pause_playback"):
+                        return widget
+                    widget = widget.parentWidget()
+                return None
+
             def _time_for_x(self, x):
-                if outer.source_duration is None or outer.source_duration <= 0.0:
+                owner = self._editor_owner()
+                if owner is None or outer.source_duration is None or outer.source_duration <= 0.0:
                     return 0.0
                 left = 9.0
                 right = max(left + 1.0, float(self.width()) - 9.0)
                 fraction = max(0.0, min(1.0, (float(x) - left) / (right - left)))
-                return fraction * float(outer.source_duration)
+                return owner.timeline_view.time_for_fraction(fraction)
 
             def _x_for_time(self, value):
+                owner = self._editor_owner()
                 left = 9.0
                 right = max(left + 1.0, float(self.width()) - 9.0)
-                if outer.source_duration is None or outer.source_duration <= 0.0:
+                if owner is None or outer.source_duration is None or outer.source_duration <= 0.0:
                     return int(round(left))
-                fraction = max(0.0, min(1.0, float(value) / float(outer.source_duration)))
+                fraction = owner.timeline_view.fraction_for_time(value)
                 return int(round(left + fraction * (right - left)))
+
+            def wheelEvent(self, event):
+                owner = self._editor_owner()
+                if owner is not None:
+                    owner._handle_timeline_wheel(event, float(event.position().x()), float(self.width()))
+                    event.accept()
+                    return
+                super().wheelEvent(event)
 
             def _marker_near_x(self, x, tolerance_px=8.0):
                 markers = list(outer.marker_times) + list(outer.dormant_marker_times)
+                owner = self._editor_owner()
+                if owner is not None and hasattr(owner, "timeline_view"):
+                    markers = [
+                        value for value in markers
+                        if owner.timeline_view.visible_start - 1e-6
+                        <= float(value)
+                        <= owner.timeline_view.visible_end + 1e-6
+                    ]
                 if not markers:
                     return None
                 nearest = min(markers, key=lambda value: abs(self._x_for_time(value) - float(x)))
@@ -1152,24 +1269,41 @@ class ExploreWindow:
 
             def mousePressEvent(self, event):
                 if event.button() == Qt.MouseButton.LeftButton:
-                    marker = self._marker_near_x(event.position().x())
-                    if marker is not None and outer.move_position_callback is not None:
-                        widget = self.window()
-                        if hasattr(widget, "_pause_playback"):
-                            widget._pause_playback()
+                    owner = self._editor_owner()
+                    marker = (
+                        self._marker_near_x(event.position().x())
+                        if getattr(owner, "editor_mode", "reframe") == "reframe"
+                        else None
+                    )
+                    if marker is not None:
+                        if owner is not None:
+                            owner._pause_playback()
+                            if hasattr(owner, "_flush_reframe_commit"):
+                                owner._flush_reframe_commit()
                         self._camera_drag_from = marker
                         self._camera_drag_to = marker
+                        self._camera_drag_moved = False
+                        self._camera_press_x = float(event.position().x())
                         self.setValue(int(round(marker * 1000.0)))
+                        self.update()
                         event.accept()
                         return
                 super().mousePressEvent(event)
 
             def mouseMoveEvent(self, event):
                 if self._camera_drag_from is not None:
-                    target = self._time_for_x(event.position().x())
-                    self._camera_drag_to = target
-                    self.setValue(int(round(target * 1000.0)))
-                    self.update()
+                    x = float(event.position().x())
+                    if (
+                        self._camera_press_x is not None
+                        and abs(x - self._camera_press_x) >= 3.0
+                        and outer.move_position_callback is not None
+                    ):
+                        self._camera_drag_moved = True
+                    if self._camera_drag_moved:
+                        target = self._time_for_x(x)
+                        self._camera_drag_to = target
+                        self.setValue(int(round(target * 1000.0)))
+                        self.update()
                     event.accept()
                     return
                 super().mouseMoveEvent(event)
@@ -1177,17 +1311,36 @@ class ExploreWindow:
             def mouseReleaseEvent(self, event):
                 if self._camera_drag_from is not None and event.button() == Qt.MouseButton.LeftButton:
                     original = float(self._camera_drag_from)
-                    target = float(self._camera_drag_to if self._camera_drag_to is not None else original)
+                    target = float(
+                        self._camera_drag_to
+                        if self._camera_drag_to is not None
+                        else original
+                    )
+                    moved = bool(self._camera_drag_moved)
                     self._camera_drag_from = None
                     self._camera_drag_to = None
+                    self._camera_drag_moved = False
+                    self._camera_press_x = None
+                    widget = self._editor_owner()
                     try:
-                        outer.move_camera_position(original, target)
-                        outer.seek(target)
+                        if moved and outer.move_position_callback is not None:
+                            outer.move_camera_position(original, target)
+                            if widget is not None:
+                                widget._seek_to(target)
+                            else:
+                                outer.seek(target)
+                        else:
+                            # A Camera Position is an addressable edit point.
+                            # Clicking its diamond navigates directly to that time.
+                            if widget is not None:
+                                widget._seek_to(original)
+                            else:
+                                outer.seek(original)
                     except Exception as exc:
                         outer.last_edit_message = f"Camera Position move failed: {exc}"
-                    widget = self.window()
-                    if hasattr(widget, "_refresh"):
+                    if widget is not None:
                         widget._refresh()
+                    self.update()
                     event.accept()
                     return
                 super().mouseReleaseEvent(event)
@@ -1201,212 +1354,157 @@ class ExploreWindow:
                 ):
                     return
 
+                owner = self._editor_owner()
+                mode = getattr(owner, "editor_mode", "reframe")
                 painter = QPainter(self)
-
                 left = 9
-                right = max(
-                    left + 1,
-                    self.width() - 9,
-                )
+                right = max(left + 1, self.width() - 9)
                 width = right - left
 
                 def x_for_time(value):
-                    fraction = max(
-                        0.0,
-                        min(
-                            1.0,
-                            float(value)
-                            / outer.source_duration,
-                        ),
-                    )
-                    return int(
-                        round(
-                            left
-                            + fraction * width
+                    if owner is not None and hasattr(owner, "timeline_view"):
+                        fraction = owner.timeline_view.fraction_for_time(value)
+                    else:
+                        fraction = max(
+                            0.0,
+                            min(1.0, float(value) / outer.source_duration),
                         )
-                    )
-
-                trim_left = x_for_time(
-                    outer.trim_start
-                )
-                trim_right = x_for_time(
-                    outer.trim_end
-                )
-
-                # A deliberate, strong visual hierarchy:
-                # gray = source outside Clip;
-                # blue band = active Clip;
-                # red = active Camera Position;
-                # muted gray = dormant Camera Position.
-                inactive = QColor(
-                    85,
-                    85,
-                    85,
-                    70,
-                )
-                active_band = QColor(
-                    70,
-                    145,
-                    230,
-                    90,
-                )
+                    return int(round(left + fraction * width))
 
                 band_top = 20
-                band_height = max(
-                    8,
-                    self.height() - 25,
-                )
+                band_height = max(8, self.height() - 25)
 
-                painter.fillRect(
-                    left,
-                    band_top,
-                    max(0, trim_left - left),
-                    band_height,
-                    inactive,
-                )
-                painter.fillRect(
-                    trim_left,
-                    band_top,
-                    max(1, trim_right - trim_left),
-                    band_height,
-                    active_band,
-                )
-                painter.fillRect(
-                    trim_right,
-                    band_top,
-                    max(0, right - trim_right),
-                    band_height,
-                    inactive,
-                )
+                if mode == "trim":
+                    trim_left = x_for_time(outer.trim_start)
+                    trim_right = x_for_time(outer.trim_end)
+                    inactive = QColor(85, 85, 85, 70)
+                    active_band = QColor(70, 145, 230, 90)
+                    painter.fillRect(
+                        left, band_top, max(0, trim_left - left), band_height, inactive
+                    )
+                    painter.fillRect(
+                        trim_left,
+                        band_top,
+                        max(1, trim_right - trim_left),
+                        band_height,
+                        active_band,
+                    )
+                    painter.fillRect(
+                        trim_right,
+                        band_top,
+                        max(0, right - trim_right),
+                        band_height,
+                        inactive,
+                    )
 
-                dormant_pen = QPen(
-                    QColor(130, 130, 130)
-                )
-                dormant_pen.setWidth(2)
-                painter.setPen(dormant_pen)
+                    boundary = QColor(45, 105, 205)
+                    trim_pen = QPen(boundary)
+                    trim_pen.setWidth(4)
+                    painter.setPen(trim_pen)
+                    painter.drawLine(trim_left, 17, trim_left, self.height() - 1)
+                    painter.drawLine(trim_right, 17, trim_right, self.height() - 1)
+
+                    flag_width = 34
+                    flag_height = 17
+                    in_x = max(left, min(right - flag_width, trim_left - flag_width // 2))
+                    out_x = max(left, min(right - flag_width, trim_right - flag_width // 2))
+                    painter.fillRect(in_x, 0, flag_width, flag_height, boundary)
+                    painter.fillRect(out_x, 0, flag_width, flag_height, boundary)
+                    painter.setPen(QPen(QColor(255, 255, 255)))
+                    painter.drawText(
+                        in_x,
+                        0,
+                        flag_width,
+                        flag_height,
+                        int(Qt.AlignmentFlag.AlignCenter),
+                        "IN",
+                    )
+                    painter.drawText(
+                        out_x,
+                        0,
+                        flag_width,
+                        flag_height,
+                        int(Qt.AlignmentFlag.AlignCenter),
+                        "OUT",
+                    )
+                    return
+
+                # Reframe mode: Camera Positions are compact diamond/keyframe
+                # markers.  This matches the familiar video-editor convention and
+                # keeps the timeline legible without tall marker lines.
+                def draw_diamond(marker_time, fill, outline):
+                    if owner is not None and hasattr(owner, "timeline_view"):
+                        if (
+                            float(marker_time) < owner.timeline_view.visible_start - 1e-6
+                            or float(marker_time) > owner.timeline_view.visible_end + 1e-6
+                        ):
+                            return
+                    x = x_for_time(marker_time)
+                    center_y = 11.0
+                    radius = 6.0
+                    polygon = QPolygonF([
+                        QPointF(float(x), center_y - radius),
+                        QPointF(float(x) + radius, center_y),
+                        QPointF(float(x), center_y + radius),
+                        QPointF(float(x) - radius, center_y),
+                    ])
+                    painter.setPen(QPen(outline, 1.5))
+                    painter.setBrush(fill)
+                    painter.drawPolygon(polygon)
+
+                active_marker = outer.camera_position_anchor_time()
 
                 for marker in outer.dormant_marker_times:
-                    x = x_for_time(marker)
-                    painter.drawLine(
-                        x,
-                        band_top,
-                        x,
-                        self.height() - 2,
+                    is_active = (
+                        active_marker is not None
+                        and abs(float(marker) - active_marker) <= 1e-6
                     )
-
-                active_pen = QPen(
-                    QColor(220, 70, 70)
-                )
-                active_pen.setWidth(3)
-                painter.setPen(active_pen)
+                    draw_diamond(
+                        marker,
+                        QColor(63, 124, 255) if is_active else QColor(92, 98, 108),
+                        QColor(226, 237, 255) if is_active else QColor(180, 184, 190),
+                    )
 
                 for marker in outer.marker_times:
-                    x = x_for_time(marker)
-                    painter.drawLine(
-                        x,
-                        band_top,
-                        x,
-                        self.height() - 2,
+                    is_active = (
+                        active_marker is not None
+                        and abs(float(marker) - active_marker) <= 1e-6
+                    )
+                    draw_diamond(
+                        marker,
+                        QColor(63, 124, 255) if is_active else QColor(225, 78, 78),
+                        QColor(226, 237, 255) if is_active else QColor(255, 225, 225),
                     )
 
-                if self._camera_drag_to is not None:
-                    drag_pen = QPen(QColor(245, 165, 45))
-                    drag_pen.setWidth(4)
-                    painter.setPen(drag_pen)
-                    drag_x = x_for_time(self._camera_drag_to)
-                    painter.drawLine(
-                        drag_x,
-                        band_top,
-                        drag_x,
-                        self.height() - 2,
+                if self._camera_drag_to is not None and self._camera_drag_moved:
+                    draw_diamond(
+                        self._camera_drag_to,
+                        QColor(245, 165, 45),
+                        QColor(255, 236, 196),
                     )
-
-                boundary = QColor(
-                    45,
-                    105,
-                    205,
-                )
-                trim_pen = QPen(boundary)
-                trim_pen.setWidth(4)
-                painter.setPen(trim_pen)
-                painter.drawLine(
-                    trim_left,
-                    17,
-                    trim_left,
-                    self.height() - 1,
-                )
-                painter.drawLine(
-                    trim_right,
-                    17,
-                    trim_right,
-                    self.height() - 1,
-                )
-
-                # Flag boxes are intentionally larger than the boundary line
-                # so there is no ambiguity about which mark is IN vs OUT.
-                flag_width = 34
-                flag_height = 17
-
-                in_x = max(
-                    left,
-                    min(
-                        right - flag_width,
-                        trim_left - flag_width // 2,
-                    ),
-                )
-                out_x = max(
-                    left,
-                    min(
-                        right - flag_width,
-                        trim_right - flag_width // 2,
-                    ),
-                )
-
-                painter.fillRect(
-                    in_x,
-                    0,
-                    flag_width,
-                    flag_height,
-                    boundary,
-                )
-                painter.fillRect(
-                    out_x,
-                    0,
-                    flag_width,
-                    flag_height,
-                    boundary,
-                )
-
-                painter.setPen(
-                    QPen(QColor(255, 255, 255))
-                )
-                painter.drawText(
-                    in_x,
-                    0,
-                    flag_width,
-                    flag_height,
-                    int(
-                        Qt.AlignmentFlag.AlignCenter
-                    ),
-                    "IN",
-                )
-                painter.drawText(
-                    out_x,
-                    0,
-                    flag_width,
-                    flag_height,
-                    int(
-                        Qt.AlignmentFlag.AlignCenter
-                    ),
-                    "OUT",
-                )
 
         class EditorWidget(QWidget):
             def __init__(self):
                 super().__init__()
                 self.setWindowTitle(WINDOW_TITLE)
+                set_application_icon(QApplication.instance())
+                self.setWindowIcon(QIcon(str(application_icon_path())))
+                self.setObjectName("panopilotEditor")
                 self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+                self.setStyleSheet(WORKSPACE_STYLESHEET)
+                self.editor_mode = outer.initial_mode
+                self._source_pixmap = None
+                self.timeline_view = TimelineViewport(
+                    outer.source_duration or max(outer.source_time, 0.001),
+                    min_visible_duration=max(0.25, 10.0 / max(outer.playback_fps, 1.0)),
+                )
+                self._timeline_thumbnail_pixmaps = []
+                self._timeline_thumbnail_labels = []
+                self._timeline_thumbnail_geometry = None
+                self._timeline_thumbnail_key = None
+                self._timeline_thumbnail_cache = {}
                 self._dragging = False
+                self._drag_changed = False
                 self._last_pos = None
                 self._play_anchor_wall = None
                 self._play_anchor_source = None
@@ -1423,6 +1521,14 @@ class ExploreWindow:
                 )
                 self.image_label.setStyleSheet(
                     "background: #111318;"
+                )
+                self.image_label.setMinimumSize(160, 90)
+                # Ignore the pixmap's size hint in both dimensions. The preview
+                # must follow the available canvas geometry from the first show,
+                # not the initial pre-layout pixmap size.
+                self.image_label.setSizePolicy(
+                    QSizePolicy.Policy.Ignored,
+                    QSizePolicy.Policy.Ignored,
                 )
 
                 self.canvas = QFrame()
@@ -1446,13 +1552,10 @@ class ExploreWindow:
                     0,
                     0,
                 )
-                canvas_layout.addStretch(1)
-                canvas_layout.addWidget(
-                    self.image_label,
-                    0,
-                    Qt.AlignmentFlag.AlignCenter,
-                )
-                canvas_layout.addStretch(1)
+                # The preview surface owns the complete media container.
+                # The pixmap itself preserves the output aspect ratio, so any
+                # letterboxing happens inside this full-size dark surface.
+                canvas_layout.addWidget(self.image_label, 1)
 
                 # ---------------------------------------------------------
                 # Compact status readouts
@@ -1469,9 +1572,7 @@ class ExploreWindow:
                 self.clip_time_label.setAlignment(
                     Qt.AlignmentFlag.AlignCenter
                 )
-                self.clip_time_label.setStyleSheet(
-                    "color: palette(mid);"
-                )
+                self.clip_time_label.setObjectName("editorSecondaryText")
 
                 self.project_status_label = QLabel(
                     "Saved"
@@ -1502,9 +1603,7 @@ class ExploreWindow:
                     Qt.AlignmentFlag.AlignRight
                     | Qt.AlignmentFlag.AlignVCenter
                 )
-                self.camera_label.setStyleSheet(
-                    "color: palette(mid);"
-                )
+                self.camera_label.setObjectName("editorSecondaryText")
 
                 self.motion_combo = QComboBox()
                 self.motion_combo.setFocusPolicy(
@@ -1557,7 +1656,7 @@ class ExploreWindow:
                     )
                 )
                 self.motion_strength_slider.setMinimumWidth(
-                    150
+                    105
                 )
                 self.motion_strength_slider.setToolTip(
                     "How strongly the selected easing curve affects camera movement. "
@@ -1580,9 +1679,7 @@ class ExploreWindow:
                 self.feedback_label.setAlignment(
                     Qt.AlignmentFlag.AlignCenter
                 )
-                self.feedback_label.setStyleSheet(
-                    "color: palette(mid);"
-                )
+                self.feedback_label.setObjectName("editorSecondaryText")
 
                 # Trim values are separate compact chips rather than one
                 # long sentence that forces the entire window wider.
@@ -1603,7 +1700,8 @@ class ExploreWindow:
                 chip_style = (
                     "QLabel {"
                     " padding: 3px 8px;"
-                    " border: 1px solid palette(mid);"
+                    " color: #e7e9ed;"
+                    " border: 1px solid #56606d;"
                     " border-radius: 4px;"
                     "}"
                 )
@@ -1620,8 +1718,8 @@ class ExploreWindow:
                 # ---------------------------------------------------------
                 # Precise 360 View Direction controls. Mouse dragging remains
                 # the fast free-look gesture; arrows provide deterministic
-                # angular nudges for fine framing. These are transient
-                # navigation actions until Set Camera is pressed.
+                # angular nudges for fine framing. In Reframe mode, the GUI
+                # batches these into the closest Camera Position to the left.
                 # ---------------------------------------------------------
                 self.view_step_combo = QComboBox()
                 self.view_step_combo.setFocusPolicy(
@@ -1800,13 +1898,16 @@ class ExploreWindow:
                 )
 
                 self.use_view_button = QPushButton(
-                    "Set Camera"
+                    "◆  Add at Playhead"
                 )
+                self.use_view_button.setObjectName("primaryAction")
                 self.use_view_button.setFocusPolicy(
                     Qt.FocusPolicy.NoFocus
                 )
                 self.use_view_button.setToolTip(
-                    "Set and save a Camera Position at this Source Time (Enter)"
+                    "Create a Camera Position at the current playhead time. "
+                    "After a position exists, reframing automatically updates the "
+                    "closest Camera Position to the left. (Enter)"
                 )
                 self.use_view_button.setDefault(
                     True
@@ -1959,261 +2060,266 @@ class ExploreWindow:
                 )
 
                 # ---------------------------------------------------------
-                # Layout
+                # Workflow-focused layout — 0.49
                 #
-                # Row 1: transport + authoritative time + save state
-                # Row 2: edit operations + compact camera status
-                # Row 3: trim chips
-                # Row 4: timeline
+                # DJI Mimo-inspired hierarchy adapted to desktop:
+                #   1. compact Back + Reframe/Trim mode switch,
+                #   2. media-dominant preview,
+                #   3. contextual controls beside the preview in Reframe,
+                #   4. Play immediately beside the timeline.
                 # ---------------------------------------------------------
-                transport = QHBoxLayout()
-                transport.setSpacing(6)
-                transport.addWidget(
-                    self.play_button
+                self.back_button = QToolButton()
+                self.back_button.setText(
+                    "← Project" if embed_host is not None else "← Close"
                 )
-                transport.addWidget(
-                    self.use_view_button
+                self.back_button.setObjectName("backToProjectAction")
+                self.back_button.setToolTip(
+                    "Close Clip editing and return to the Project workspace (Esc)"
                 )
-                transport.addSpacing(8)
-                transport.addWidget(
-                    self.time_label,
-                    1,
-                )
-                transport.addWidget(
-                    self.camera_position_label
-                )
-                transport.addWidget(
-                    self.project_status_label
-                )
-                transport.addWidget(
-                    self.undo_button
-                )
-                transport.addWidget(
-                    self.redo_button
-                )
-                transport.addWidget(
-                    self.save_button
-                )
+                self.back_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                self.back_button.clicked.connect(self.close)
 
-                edit_row = QHBoxLayout()
-                edit_row.setSpacing(6)
-                edit_row.addWidget(
-                    self.in_button
-                )
-                edit_row.addWidget(
-                    self.out_button
-                )
-                edit_row.addWidget(
-                    self.clear_trim_button
-                )
-                edit_row.addWidget(
-                    self.delete_button
-                )
-                edit_row.addSpacing(8)
-                edit_row.addWidget(
-                    self.clip_time_label
-                )
-                edit_row.addStretch(1)
-                edit_row.addWidget(
-                    self.camera_label
-                )
+                self.reframe_mode_button = QPushButton("Reframe")
+                self.trim_mode_button = QPushButton("Trim")
+                for mode_button in (self.reframe_mode_button, self.trim_mode_button):
+                    mode_button.setCheckable(True)
+                    mode_button.setObjectName("modeAction")
+                    mode_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                    mode_button.setFixedHeight(30)
 
-                view_row = QHBoxLayout()
-                view_row.setSpacing(8)
+                self.mode_group = QButtonGroup(self)
+                self.mode_group.setExclusive(True)
+                self.mode_group.addButton(self.reframe_mode_button)
+                self.mode_group.addButton(self.trim_mode_button)
+                self.reframe_mode_button.setChecked(self.editor_mode == "reframe")
+                self.trim_mode_button.setChecked(self.editor_mode == "trim")
 
-                view_title = QLabel(
-                    "View Direction"
+                # Kept for contextual accessibility text/tooltips; no longer
+                # consumes a permanent row in the editor.
+                self.mode_hint = QLabel()
+                self.mode_hint.hide()
+
+                mode_row = QHBoxLayout()
+                mode_row.setContentsMargins(0, 0, 0, 0)
+                mode_row.setSpacing(6)
+                mode_row.addWidget(self.back_button)
+                mode_row.addSpacing(10)
+                mode_row.addWidget(self.reframe_mode_button)
+                mode_row.addWidget(self.trim_mode_button)
+                mode_row.addStretch(1)
+
+                # ---- always-visible fine-camera controls beside preview ----
+                # 0.50 removes the disclosure toggle: these are the active tools
+                # for Reframe mode, so hiding them only adds interaction cost.
+                self.advanced_frame = QFrame()
+                self.advanced_frame.setObjectName("advancedCameraPanel")
+                advanced_layout = QVBoxLayout(self.advanced_frame)
+                advanced_layout.setContentsMargins(0, 2, 0, 0)
+                advanced_layout.setSpacing(6)
+
+                camera_state_title = QLabel("Camera")
+                camera_state_title.setStyleSheet("font-weight: 600;")
+                advanced_layout.addWidget(camera_state_title)
+                self.camera_label.setWordWrap(True)
+                self.camera_label.setAlignment(
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
                 )
-                view_title.setStyleSheet(
-                    "font-weight: 600;"
-                )
+                advanced_layout.addWidget(self.camera_label)
+
+                direction_title = QLabel("Direction")
+                direction_title.setStyleSheet("font-weight: 600;")
+                advanced_layout.addWidget(direction_title)
 
                 direction_pad = QGridLayout()
-                direction_pad.setHorizontalSpacing(3)
-                direction_pad.setVerticalSpacing(3)
-                direction_pad.setContentsMargins(
-                    0,
-                    0,
-                    0,
-                    0,
-                )
-                direction_pad.addWidget(
-                    self.view_up_button,
-                    0,
-                    1,
-                )
-                direction_pad.addWidget(
-                    self.view_left_button,
-                    1,
-                    0,
-                )
-                direction_pad.addWidget(
-                    self.view_right_button,
-                    1,
-                    2,
-                )
-                direction_pad.addWidget(
-                    self.view_down_button,
-                    2,
-                    1,
-                )
+                direction_pad.setHorizontalSpacing(4)
+                direction_pad.setVerticalSpacing(4)
+                direction_pad.setContentsMargins(0, 0, 0, 0)
+                direction_pad.addWidget(self.view_up_button, 0, 1)
+                direction_pad.addWidget(self.view_left_button, 1, 0)
+                direction_pad.addWidget(self.view_right_button, 1, 2)
+                direction_pad.addWidget(self.view_down_button, 2, 1)
+                direction_shell = QHBoxLayout()
+                direction_shell.setContentsMargins(0, 0, 0, 0)
+                direction_shell.addStretch(1)
+                direction_shell.addLayout(direction_pad)
+                direction_shell.addStretch(1)
+                advanced_layout.addLayout(direction_shell)
 
-                view_row.addWidget(
-                    view_title
-                )
-                view_row.addLayout(
-                    direction_pad
-                )
-                view_row.addSpacing(10)
-                view_row.addWidget(
-                    QLabel(
-                        "Roll"
-                    )
-                )
-                view_row.addWidget(
-                    self.view_ccw_button
-                )
-                view_row.addWidget(
-                    self.view_cw_button
-                )
-                view_row.addSpacing(8)
-                view_row.addWidget(
-                    QLabel(
-                        "Step"
-                    )
-                )
-                view_row.addWidget(
-                    self.view_step_combo
-                )
-                view_row.addWidget(
-                    QLabel(
-                        "Shift+Arrow   [ / ]"
-                    )
-                )
-                view_row.addStretch(
-                    1
-                )
+                roll_row = QHBoxLayout()
+                roll_row.setContentsMargins(0, 0, 0, 0)
+                roll_row.setSpacing(5)
+                roll_row.addWidget(QLabel("Roll"))
+                roll_row.addStretch(1)
+                roll_row.addWidget(self.view_ccw_button)
+                roll_row.addWidget(self.view_cw_button)
+                advanced_layout.addLayout(roll_row)
 
-                motion_row = QHBoxLayout()
-                motion_row.setSpacing(6)
+                step_row = QHBoxLayout()
+                step_row.setContentsMargins(0, 0, 0, 0)
+                step_row.setSpacing(5)
+                step_row.addWidget(QLabel("Step"))
+                step_row.addWidget(self.view_step_combo, 1)
+                advanced_layout.addLayout(step_row)
 
-                motion_title = QLabel(
-                    "Camera Motion"
-                )
-                motion_title.setStyleSheet(
-                    "font-weight: 600;"
-                )
+                motion_title = QLabel("Motion")
+                motion_title.setStyleSheet("font-weight: 600;")
+                advanced_layout.addWidget(motion_title)
+                advanced_layout.addWidget(self.motion_combo)
+                motion_amount_row = QHBoxLayout()
+                motion_amount_row.setContentsMargins(0, 0, 0, 0)
+                motion_amount_row.setSpacing(5)
+                motion_amount_row.addWidget(self.motion_strength_slider, 1)
+                motion_amount_row.addWidget(self.motion_strength_label)
+                advanced_layout.addLayout(motion_amount_row)
+                advanced_layout.addStretch(1)
 
-                amount_title = QLabel(
-                    "Amount"
+                self.reframe_frame = QFrame()
+                self.reframe_frame.setObjectName("reframeTools")
+                self.reframe_frame.setMinimumWidth(180)
+                self.reframe_frame.setMaximumWidth(230)
+                self.reframe_frame.setSizePolicy(
+                    QSizePolicy.Policy.Preferred,
+                    QSizePolicy.Policy.Expanding,
                 )
+                reframe_layout = QVBoxLayout(self.reframe_frame)
+                reframe_layout.setContentsMargins(9, 8, 9, 8)
+                reframe_layout.setSpacing(7)
+                position_header = QHBoxLayout()
+                position_header.setContentsMargins(0, 0, 0, 0)
+                position_header.setSpacing(5)
+                position_title = QLabel("Camera Positions")
+                position_title.setStyleSheet("font-weight: 600;")
+                position_header.addWidget(position_title)
+                position_header.addStretch(1)
+                position_header.addWidget(self.camera_position_label)
+                position_header.addWidget(self.delete_button)
+                reframe_layout.addLayout(position_header)
+                reframe_layout.addWidget(self.use_view_button)
+                reframe_layout.addWidget(self.advanced_frame, 1)
 
-                motion_row.addWidget(
-                    motion_title
-                )
-                motion_row.addWidget(
-                    self.motion_combo
-                )
-                motion_row.addSpacing(10)
-                motion_row.addWidget(
-                    amount_title
-                )
-                motion_row.addWidget(
-                    self.motion_strength_slider,
-                    1,
-                )
-                motion_row.addWidget(
-                    self.motion_strength_label
-                )
+                preview_row = QHBoxLayout()
+                preview_row.setContentsMargins(0, 0, 0, 0)
+                preview_row.setSpacing(8)
+                preview_row.addWidget(self.canvas, 1)
+                preview_row.addWidget(self.reframe_frame, 0)
 
+                # ---- trim-only contextual tools / filmstrip ----
                 trim_row = QHBoxLayout()
+                trim_row.setContentsMargins(0, 0, 0, 0)
                 trim_row.setSpacing(6)
+                trim_row.addWidget(self.in_button)
+                trim_row.addWidget(self.out_button)
+                trim_row.addWidget(self.clear_trim_button)
+                trim_row.addSpacing(8)
+                trim_row.addWidget(self.trim_in_label)
+                trim_row.addWidget(self.trim_duration_label)
+                trim_row.addWidget(self.trim_out_label)
                 trim_row.addStretch(1)
-                trim_row.addWidget(
-                    self.trim_in_label
+                trim_row.addWidget(self.clip_time_label)
+
+                self.timeline_thumbnail_frame = QFrame()
+                self.timeline_thumbnail_frame.setObjectName("timelineThumbnails")
+                self.timeline_thumbnail_layout = QHBoxLayout(self.timeline_thumbnail_frame)
+                self.timeline_thumbnail_layout.setContentsMargins(0, 0, 0, 0)
+                self.timeline_thumbnail_layout.setSpacing(0)
+                self.timeline_thumbnail_frame.setSizePolicy(
+                    QSizePolicy.Policy.Expanding,
+                    QSizePolicy.Policy.Fixed,
                 )
-                trim_row.addWidget(
-                    self.trim_duration_label
+                self.timeline_thumbnail_frame.installEventFilter(self)
+                self.timeline_thumbnail_frame.hide()
+
+                self.trim_frame = QFrame()
+                self.trim_frame.setObjectName("trimTools")
+                trim_layout = QVBoxLayout(self.trim_frame)
+                trim_layout.setContentsMargins(0, 0, 0, 0)
+                trim_layout.setSpacing(4)
+                trim_layout.addLayout(trim_row)
+                self.trim_frame.hide()
+
+                # ---- Mimo-style transport: Play is part of the timeline ----
+                timeline_row = QHBoxLayout()
+                timeline_row.setContentsMargins(0, 0, 0, 0)
+                timeline_row.setSpacing(7)
+                self.play_button.setFixedSize(36, 32)
+                timeline_row.addWidget(self.play_button)
+                timeline_row.addWidget(self.slider, 1)
+                timeline_row.addWidget(self.time_label)
+
+                # Long-form timeline navigation: the visible time window can
+                # zoom around the pointer and pan horizontally. The scrollbar
+                # appears as the durable desktop affordance when zoomed.
+                self.timeline_scroll = QScrollBar(Qt.Orientation.Horizontal)
+                self.timeline_scroll.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                self.timeline_scroll.setToolTip(
+                    "Horizontal timeline position. Mouse wheel over the timeline zooms; "
+                    "Shift+wheel pans; Fit shows the full source."
                 )
-                trim_row.addWidget(
-                    self.trim_out_label
-                )
-                trim_row.addStretch(1)
+                self.timeline_zoom_out = QPushButton("−")
+                self.timeline_fit = QPushButton("Fit")
+                self.timeline_zoom_in = QPushButton("+")
+                self.timeline_zoom_label = QLabel("1.0×")
+                self.timeline_zoom_label.setObjectName("editorSecondaryText")
+                for button in (self.timeline_zoom_out, self.timeline_fit, self.timeline_zoom_in):
+                    button.setFixedSize(34 if button is not self.timeline_fit else 44, 26)
+                    button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+                # Wire navigation only after every timeline widget exists.
+                # Keeping construction before signal connections avoids runtime
+                # initialization-order failures when the Clip Editor opens.
+                self.timeline_scroll.valueChanged.connect(self._timeline_scroll_changed)
+                self.timeline_zoom_out.clicked.connect(lambda: self._zoom_timeline(-1.0))
+                self.timeline_fit.clicked.connect(self._fit_timeline)
+                self.timeline_zoom_in.clicked.connect(lambda: self._zoom_timeline(+1.0))
+
+                timeline_nav_row = QHBoxLayout()
+                timeline_nav_row.setContentsMargins(43, 0, 0, 0)
+                timeline_nav_row.setSpacing(5)
+                timeline_nav_row.addWidget(self.timeline_scroll, 1)
+                timeline_nav_row.addWidget(self.timeline_zoom_out)
+                timeline_nav_row.addWidget(self.timeline_fit)
+                timeline_nav_row.addWidget(self.timeline_zoom_in)
+                timeline_nav_row.addWidget(self.timeline_zoom_label)
+
+                if embed_host is None:
+                    timeline_row.addWidget(self.project_status_label)
+                    timeline_row.addWidget(self.undo_button)
+                    timeline_row.addWidget(self.redo_button)
+                    timeline_row.addWidget(self.save_button)
 
                 controls_frame = QFrame()
-                controls_frame.setFrameShape(
-                    QFrame.Shape.StyledPanel
-                )
-
-                controls_layout = QVBoxLayout(
-                    controls_frame
-                )
-                controls_layout.setContentsMargins(
-                    8,
-                    7,
-                    8,
-                    7,
-                )
+                controls_frame.setObjectName("editorControls")
+                controls_frame.setFrameShape(QFrame.Shape.NoFrame)
+                controls_layout = QVBoxLayout(controls_frame)
+                controls_layout.setContentsMargins(0, 0, 0, 0)
                 controls_layout.setSpacing(5)
-                controls_layout.addLayout(
-                    transport
-                )
-                controls_layout.addLayout(
-                    edit_row
-                )
-                controls_layout.addLayout(
-                    view_row
-                )
-                controls_layout.addLayout(
-                    motion_row
-                )
-                controls_layout.addWidget(
-                    self.feedback_label
-                )
-                controls_layout.addLayout(
-                    trim_row
-                )
-                controls_layout.addWidget(
-                    self.slider
-                )
+                controls_layout.addWidget(self.trim_frame)
+                controls_layout.addWidget(self.feedback_label)
+                controls_layout.addWidget(self.timeline_thumbnail_frame)
+                controls_layout.addLayout(timeline_row)
+                controls_layout.addLayout(timeline_nav_row)
 
-                layout = QVBoxLayout(
-                    self
-                )
-                layout.setContentsMargins(
-                    8,
-                    8,
-                    8,
-                    8,
-                )
-                layout.setSpacing(8)
-                layout.addWidget(
-                    self.canvas,
-                    1,
-                )
-                layout.addWidget(
-                    controls_frame,
-                    0,
-                )
+                layout = QVBoxLayout(self)
+                layout.setContentsMargins(8, 7, 8, 7)
+                layout.setSpacing(7)
+                layout.addLayout(mode_row)
+                layout.addLayout(preview_row, 1)
+                layout.addWidget(controls_frame, 0)
 
-                # Keep the initial editor compact. Long labels no longer drive
-                # the top-level window size.
-                minimum_width = max(
-                    760,
-                    int(
-                        self.image_label.minimumSizeHint().width()
-                    ),
+                # The editor is intentionally shrinkable. The display pixmap
+                # scales with the canvas instead of imposing the render size on
+                # the top-level window.
+                self.setMinimumSize(480, 360)
+                if embed_host is None:
+                    self.resize(960, 680)
+
+                self.reframe_mode_button.clicked.connect(
+                    lambda: self._set_editor_mode("reframe")
                 )
-                self.resize(
-                    max(
-                        860,
-                        outer.landscape_size[0] + 32,
-                    ),
-                    outer.landscape_size[1] + 270,
+                self.trim_mode_button.clicked.connect(
+                    lambda: self._set_editor_mode("trim")
                 )
-                self.setMinimumWidth(
-                    minimum_width
-                )
+                self._set_editor_mode(self.editor_mode)
 
                 self.image_label.mousePressEvent = (
                     self._image_mouse_press
@@ -2249,6 +2355,23 @@ class ExploreWindow:
                     self._playback_tick
                 )
 
+                # Wheel/trackpad events arrive as a burst. Commit the resulting
+                # reframing once the gesture settles so Undo gets one meaningful
+                # transaction instead of one entry per wheel event.
+                self.reframe_commit_timer = QTimer(self)
+                self.reframe_commit_timer.setSingleShot(True)
+                self.reframe_commit_timer.setInterval(260)
+                self.reframe_commit_timer.timeout.connect(
+                    self._commit_reframe_to_left
+                )
+
+                self.timeline_thumbnail_timer = QTimer(self)
+                self.timeline_thumbnail_timer.setSingleShot(True)
+                self.timeline_thumbnail_timer.setInterval(110)
+                self.timeline_thumbnail_timer.timeout.connect(
+                    self._load_timeline_thumbnails_for_view
+                )
+
                 self.media_player = None
                 self.audio_output = None
                 if (
@@ -2273,6 +2396,327 @@ class ExploreWindow:
                     outer.audio_clock = "monotonic-fallback"
 
                 self._refresh()
+
+            def _set_editor_mode(self, mode):
+                mode = "trim" if str(mode).lower() == "trim" else "reframe"
+                if (
+                    mode == "trim"
+                    and getattr(self, "editor_mode", "reframe") == "reframe"
+                    and hasattr(self, "reframe_commit_timer")
+                ):
+                    self._flush_reframe_commit()
+                self.editor_mode = mode
+                is_reframe = mode == "reframe"
+                self.reframe_mode_button.setChecked(is_reframe)
+                self.trim_mode_button.setChecked(not is_reframe)
+                self.reframe_frame.setVisible(is_reframe)
+                self.trim_frame.setVisible(not is_reframe)
+                self.advanced_frame.setVisible(is_reframe)
+                # In Trim, the right-side camera rail disappears so the preview
+                # immediately expands to the full available width.
+
+                if is_reframe:
+                    self.mode_hint.setText(
+                        "Reframe: drag or use the fine controls; edits update the closest diamond to the left."
+                    )
+                    self.slider.setToolTip(
+                        "Reframe timeline. Click a Camera Position diamond to jump to it; "
+                        "reframing updates the closest diamond to the left. Drag a diamond "
+                        "to change when that saved view occurs."
+                    )
+                else:
+                    self.mode_hint.setText(
+                        "Trim: choose the source range with Trim In and Trim Out."
+                    )
+                    self.slider.setToolTip(
+                        "Trim timeline. Seek to the desired boundaries, then use Trim In / Trim Out."
+                    )
+
+                # A thin media filmstrip is useful navigation context in both
+                # workflows, following the media-first pattern used by DJI Mimo.
+                self._sync_timeline_view_controls()
+                self.slider.update()
+
+            def _sync_timeline_view_controls(self, *, schedule_thumbnails=True):
+                start_ms = int(round(self.timeline_view.visible_start * 1000.0))
+                end_ms = int(round(self.timeline_view.visible_end * 1000.0))
+                if end_ms <= start_ms:
+                    end_ms = start_ms + 1
+                self.slider.blockSignals(True)
+                try:
+                    self.slider.setRange(start_ms, end_ms)
+                    self.slider.setValue(
+                        max(start_ms, min(end_ms, int(round(outer.source_time * 1000.0))))
+                    )
+                finally:
+                    self.slider.blockSignals(False)
+
+                scroll = self.timeline_view.scrollbar_state_ms()
+                self.timeline_scroll.blockSignals(True)
+                try:
+                    self.timeline_scroll.setRange(scroll["minimum"], scroll["maximum"])
+                    self.timeline_scroll.setPageStep(scroll["page_step"])
+                    self.timeline_scroll.setValue(scroll["value"])
+                    self.timeline_scroll.setVisible(not self.timeline_view.is_fitted)
+                finally:
+                    self.timeline_scroll.blockSignals(False)
+                self.timeline_zoom_label.setText(f"{self.timeline_view.zoom_ratio:.1f}×")
+                self.timeline_fit.setEnabled(not self.timeline_view.is_fitted)
+                self.slider.update()
+                if schedule_thumbnails:
+                    self._schedule_timeline_thumbnails()
+
+            def _timeline_scroll_changed(self, value):
+                if self.timeline_view.is_fitted:
+                    return
+                self.timeline_view.visible_start = self.timeline_view._clamp_start(float(value) / 1000.0)
+                self._sync_timeline_view_controls()
+
+            def _zoom_timeline(self, steps, *, anchor_time=None):
+                if anchor_time is None:
+                    if self.timeline_view.visible_start <= outer.source_time <= self.timeline_view.visible_end:
+                        anchor_time = outer.source_time
+                    else:
+                        anchor_time = self.timeline_view.visible_start + self.timeline_view.visible_duration / 2.0
+                self.timeline_view.zoom_steps(float(steps), anchor_time=anchor_time)
+                self._sync_timeline_view_controls()
+
+            def _fit_timeline(self):
+                self.timeline_view.fit()
+                self._sync_timeline_view_controls()
+
+            def _handle_timeline_wheel(self, event, x, width):
+                shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                angle = event.angleDelta()
+                pixel = event.pixelDelta()
+                horizontal_pixel = (not pixel.isNull()) and abs(pixel.x()) > abs(pixel.y())
+                if shift or horizontal_pixel:
+                    if horizontal_pixel:
+                        fraction = -float(pixel.x()) / max(1.0, float(width))
+                    else:
+                        fraction = -float(angle.y()) / 120.0 * 0.16
+                    self.timeline_view.pan_fraction(fraction)
+                    self._sync_timeline_view_controls()
+                    return
+                steps = float(angle.y()) / 120.0 if angle.y() else (
+                    float(pixel.y()) / 30.0 if not pixel.isNull() else 0.0
+                )
+                if abs(steps) <= 1e-12:
+                    return
+                left = 9.0
+                right = max(left + 1.0, float(width) - 9.0)
+                fraction = max(0.0, min(1.0, (float(x) - left) / (right - left)))
+                anchor_time = self.timeline_view.time_for_fraction(fraction)
+                self._zoom_timeline(steps, anchor_time=anchor_time)
+
+            def _ensure_timeline_playhead_visible(self, source_time):
+                if self.timeline_view.ensure_visible(source_time, margin_ratio=0.12):
+                    self._sync_timeline_view_controls()
+
+            def _clear_timeline_thumbnail_labels(self):
+                while self.timeline_thumbnail_layout.count():
+                    item = self.timeline_thumbnail_layout.takeAt(0)
+                    widget = item.widget()
+                    if widget is not None:
+                        widget.deleteLater()
+                self._timeline_thumbnail_labels = []
+
+            def _filmstrip_pixmap_for_tile(self, pixmap, width, height):
+                scaled = pixmap.scaled(
+                    int(width),
+                    int(height),
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                x0 = max(0, (scaled.width() - int(width)) // 2)
+                y0 = max(0, (scaled.height() - int(height)) // 2)
+                return scaled.copy(x0, y0, int(width), int(height))
+
+            def _timeline_thumbnail_count(self):
+                available = max(1, self.timeline_thumbnail_frame.contentsRect().width())
+                geometry = filmstrip_tile_geometry(
+                    available,
+                    height=46,
+                    aspect=16 / 9,
+                    max_tiles=24,
+                )
+                return max(1, int(geometry["count"]))
+
+            def _timeline_thumbnail_view_key(self):
+                return (
+                    round(self.timeline_view.visible_start, 3),
+                    round(self.timeline_view.visible_end, 3),
+                    self._timeline_thumbnail_count(),
+                )
+
+            def _schedule_timeline_thumbnails(self):
+                if not outer.cache_media_path:
+                    self.timeline_thumbnail_frame.hide()
+                    return
+                if hasattr(self, "timeline_thumbnail_timer"):
+                    self.timeline_thumbnail_timer.start()
+
+            def _load_timeline_thumbnails_for_view(self):
+                if not outer.cache_media_path:
+                    self.timeline_thumbnail_frame.hide()
+                    return
+                key = self._timeline_thumbnail_view_key()
+                cached = self._timeline_thumbnail_cache.get(key)
+                if cached is None:
+                    try:
+                        samples = sample_video_thumbnails_range(
+                            outer.cache_media_path,
+                            start_time=self.timeline_view.visible_start,
+                            end_time=self.timeline_view.visible_end,
+                            count=key[2],
+                            width=160,
+                            height=90,
+                        )
+                    except Exception:
+                        samples = []
+                    pixmaps = []
+                    for sample in samples:
+                        frame = sample["frame"]
+                        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        height, width = rgb.shape[:2]
+                        image = QImage(
+                            rgb.data,
+                            width,
+                            height,
+                            int(rgb.strides[0]),
+                            QImage.Format.Format_RGB888,
+                        ).copy()
+                        pixmaps.append(QPixmap.fromImage(image))
+                    cached = pixmaps
+                    self._timeline_thumbnail_cache[key] = cached
+                    # Bound presentation cache growth while the User explores a
+                    # long source with many zoom/pan windows.
+                    while len(self._timeline_thumbnail_cache) > 12:
+                        oldest = next(iter(self._timeline_thumbnail_cache))
+                        if oldest == key and len(self._timeline_thumbnail_cache) == 1:
+                            break
+                        self._timeline_thumbnail_cache.pop(oldest, None)
+                self._timeline_thumbnail_pixmaps = list(cached)
+                self._timeline_thumbnail_key = key
+                self._timeline_thumbnail_geometry = None
+                self._layout_timeline_thumbnails()
+
+            def _layout_timeline_thumbnails(self):
+                if not self._timeline_thumbnail_pixmaps:
+                    self.timeline_thumbnail_frame.hide()
+                    return
+
+                available = max(1, self.timeline_thumbnail_frame.contentsRect().width())
+                geometry = filmstrip_tile_geometry(
+                    available,
+                    height=46,
+                    aspect=16 / 9,
+                    max_tiles=len(self._timeline_thumbnail_pixmaps),
+                )
+                geometry_key = (
+                    geometry["count"],
+                    geometry["width"],
+                    geometry["height"],
+                    self._timeline_thumbnail_key,
+                )
+                if geometry_key == self._timeline_thumbnail_geometry:
+                    self.timeline_thumbnail_frame.show()
+                    return
+
+                self._timeline_thumbnail_geometry = geometry_key
+                self._clear_timeline_thumbnail_labels()
+                count = int(geometry["count"])
+                tile_w = int(geometry["width"])
+                tile_h = int(geometry["height"])
+                frame_count = len(self._timeline_thumbnail_pixmaps)
+                if count <= 1:
+                    indices = [frame_count // 2]
+                else:
+                    indices = [
+                        int(round(i * (frame_count - 1) / float(count - 1)))
+                        for i in range(count)
+                    ]
+
+                for index in indices:
+                    label = QLabel()
+                    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                    label.setFixedSize(tile_w, tile_h)
+                    label.setSizePolicy(
+                        QSizePolicy.Policy.Fixed,
+                        QSizePolicy.Policy.Fixed,
+                    )
+                    label.setScaledContents(False)
+                    label.setPixmap(
+                        self._filmstrip_pixmap_for_tile(
+                            self._timeline_thumbnail_pixmaps[index],
+                            tile_w,
+                            tile_h,
+                        )
+                    )
+                    label.setStyleSheet(
+                        "background: #111318; border: 1px solid #303640;"
+                    )
+                    self.timeline_thumbnail_layout.addWidget(label, 0)
+                    self._timeline_thumbnail_labels.append(label)
+
+                self.timeline_thumbnail_frame.setFixedHeight(tile_h)
+                self.timeline_thumbnail_frame.show()
+
+            def _update_image_pixmap(self):
+                if self._source_pixmap is None:
+                    return
+                # The canvas is the authoritative available media rectangle. On
+                # initial show the QLabel can still report its pre-layout size;
+                # using the canvas avoids the first-click resize glitch.
+                target = self.canvas.contentsRect().size()
+                if target.width() <= 1 or target.height() <= 1:
+                    target = self.image_label.size()
+                if target.width() <= 1 or target.height() <= 1:
+                    return
+                self.image_label.setPixmap(
+                    self._source_pixmap.scaled(
+                        target,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                )
+
+            def _sync_visible_geometry(self):
+                if self.layout() is not None:
+                    self.layout().activate()
+                if self.canvas.layout() is not None:
+                    self.canvas.layout().activate()
+                self._update_image_pixmap()
+                self._timeline_thumbnail_geometry = None
+                self._schedule_timeline_thumbnails()
+
+            def showEvent(self, event):
+                super().showEvent(event)
+                # Qt may show an embedded editor before its maximized parent has
+                # finished assigning final child geometry. Re-fit on the next
+                # event-loop turns so the preview spans the canvas immediately.
+                QTimer.singleShot(0, self._sync_visible_geometry)
+                QTimer.singleShot(40, self._sync_visible_geometry)
+
+            def eventFilter(self, watched, event):
+                if (
+                    watched is getattr(self, "timeline_thumbnail_frame", None)
+                    and event.type() == QEvent.Type.Wheel
+                ):
+                    self._handle_timeline_wheel(
+                        event,
+                        float(event.position().x()),
+                        float(max(1, self.timeline_thumbnail_frame.width())),
+                    )
+                    event.accept()
+                    return True
+                return super().eventFilter(watched, event)
+
+            def resizeEvent(self, event):
+                super().resizeEvent(event)
+                self._update_image_pixmap()
+                self._timeline_thumbnail_geometry = None
+                self._schedule_timeline_thumbnails()
 
             def _duration_text(self):
                 return (
@@ -2353,7 +2797,7 @@ class ExploreWindow:
                         )
                     )
                     else (
-                        "Preview-only camera — Set Camera to save this view"
+                        "Preview-only camera — add a Camera Position to keep this view"
                         if outer.can_preview_transient_hold
                         else ""
                     )
@@ -2401,7 +2845,7 @@ class ExploreWindow:
                 )
 
                 self.camera_position_label.setText(
-                    f"CAM {outer.camera_position_count}"
+                    f"{outer.camera_position_count} saved"
                 )
 
                 self.camera_label.setText(
@@ -2476,23 +2920,9 @@ class ExploreWindow:
                     int(rgb.strides[0]),
                     QImage.Format.Format_RGB888,
                 ).copy()
-                self.image_label.setPixmap(
-                    QPixmap.fromImage(
-                        image
-                    )
-                )
-                self.image_label.setFixedSize(
-                    width,
-                    height,
-                )
-                self.slider.setValue(
-                    int(
-                        round(
-                            outer.source_time
-                            * 1000.0
-                        )
-                    )
-                )
+                self._source_pixmap = QPixmap.fromImage(image)
+                self._update_image_pixmap()
+                self._sync_timeline_view_controls(schedule_thumbnails=False)
                 self._update_time_label()
                 self._update_trim_status()
                 self._refresh_edit_controls()
@@ -2500,9 +2930,12 @@ class ExploreWindow:
                 self.update()
 
             def _seek_to(self, seconds):
+                if hasattr(self, "reframe_commit_timer"):
+                    self._flush_reframe_commit()
                 QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
                 try:
                     outer.seek(seconds)
+                    self._ensure_timeline_playhead_visible(outer.source_time)
                     if self.media_player is not None:
                         self.media_player.setPosition(int(round(outer.source_time * 1000.0)))
                     self._refresh()
@@ -2525,6 +2958,36 @@ class ExploreWindow:
 
                 self._refresh()
                 return True
+
+            def _commit_reframe_to_left(self):
+                if self.editor_mode != "reframe":
+                    return False
+                try:
+                    result = outer.update_left_camera_position()
+                except Exception as exc:
+                    QMessageBox.critical(
+                        self,
+                        "PanoPilot — Camera Position failed",
+                        str(exc),
+                    )
+                    return False
+
+                # View pixels are already current; update edit/status surfaces
+                # without forcing another panoramic render.
+                self._update_trim_status()
+                self._refresh_edit_controls()
+                self.slider.update()
+                return bool(result.get("changed"))
+
+            def _schedule_reframe_commit(self):
+                if self.editor_mode == "reframe":
+                    self.reframe_commit_timer.start()
+
+            def _flush_reframe_commit(self):
+                if self.reframe_commit_timer.isActive():
+                    self.reframe_commit_timer.stop()
+                    return self._commit_reframe_to_left()
+                return False
 
             def _motion_strength_preview(
                 self,
@@ -2619,29 +3082,25 @@ class ExploreWindow:
                 return self._run_trim_edit(outer.clear_trim)
 
             def _playback_target_time(self):
+                target = outer.monotonic_playback_target(
+                    self._play_anchor_source,
+                    self._play_anchor_wall,
+                )
+                # Audio follows the authoritative editor clock. Correct only
+                # meaningful drift; normal QMediaPlayer jitter is left alone.
                 if self.media_player is not None:
                     position = self.media_player.position()
                     if position >= 0:
                         position_s = float(position) / 1000.0
-                        # QMediaPlayer may briefly report 0 while an async
-                        # local source is loading.  Do not jump the editor
-                        # back to zero when playback was started later in the
-                        # clip; use the monotonic fallback until the media
-                        # clock reaches the requested start position.
-                        if (
-                            self._play_anchor_source <= 0.25
-                            or position_s >= self._play_anchor_source - 0.25
-                        ):
-                            return position_s
-                return (
-                    self._play_anchor_source
-                    + (time.perf_counter() - self._play_anchor_wall)
-                )
+                        if abs(position_s - target) > 0.35:
+                            self.media_player.setPosition(int(round(target * 1000.0)))
+                return target
 
             def _start_playback(self):
                 if outer.playing:
                     return
 
+                self._flush_reframe_commit()
                 start_time = outer.playback_start_time()
                 outer.begin_playback_view()
 
@@ -2710,6 +3169,7 @@ class ExploreWindow:
                     outer.seek_for_playback(
                         target
                     )
+                    self._ensure_timeline_playhead_visible(outer.source_time)
                 except Exception:
                     self._pause_playback()
                     raise
@@ -2766,18 +3226,26 @@ class ExploreWindow:
                     ),
                 )
                 self._refresh()
+                self._schedule_reframe_commit()
 
             def _image_mouse_press(self, event: QMouseEvent):
                 if event.button() == Qt.MouseButton.LeftButton:
                     self._pause_playback()
+                    self._flush_reframe_commit()
                     self._dragging = True
+                    self._drag_changed = False
                     self._last_pos = event.position()
                     event.accept()
 
             def _image_mouse_release(self, event: QMouseEvent):
                 if event.button() == Qt.MouseButton.LeftButton:
+                    changed = bool(self._drag_changed)
                     self._dragging = False
+                    self._drag_changed = False
                     self._last_pos = None
+                    if changed:
+                        # One drag gesture -> one automatic Camera Position edit.
+                        self._commit_reframe_to_left()
                     event.accept()
 
             def _image_mouse_move(self, event: QMouseEvent):
@@ -2785,8 +3253,17 @@ class ExploreWindow:
                     pos = event.position()
                     dx = pos.x() - self._last_pos.x()
                     dy = pos.y() - self._last_pos.y()
+                    if abs(dx) > 0.01 or abs(dy) > 0.01:
+                        self._drag_changed = True
                     width, _ = outer.view_size
-                    outer.state.apply_drag(dx, dy, width)
+                    displayed = self.image_label.pixmap()
+                    displayed_width = (
+                        displayed.width()
+                        if displayed is not None and not displayed.isNull()
+                        else self.image_label.width()
+                    )
+                    scale = float(width) / max(1.0, float(displayed_width))
+                    outer.state.apply_drag(dx * scale, dy * scale, width)
                     self._last_pos = pos
                     self._refresh()
                     event.accept()
@@ -2799,6 +3276,7 @@ class ExploreWindow:
                 if steps:
                     outer.state.apply_wheel_steps(steps)
                     self._refresh()
+                    self._schedule_reframe_commit()
                 event.accept()
 
             def keyPressEvent(self, event: QKeyEvent):
@@ -2912,6 +3390,7 @@ class ExploreWindow:
                 if key == Qt.Key.Key_R:
                     self._pause_playback()
                     outer.state.reset()
+                    self._commit_reframe_to_left()
                     self._refresh()
                     return
 
@@ -2936,6 +3415,7 @@ class ExploreWindow:
 
             def closeEvent(self, event):
                 self._pause_playback()
+                self._flush_reframe_commit()
 
                 if outer.project_dirty:
                     box = QMessageBox(self)
@@ -2972,7 +3452,25 @@ class ExploreWindow:
                     self.media_player.stop()
 
                 event.accept()
-                window_loop.quit()
+
+                if on_closed is not None:
+                    final_state = outer.result_state()
+
+                    def finish_embedded_close():
+                        if embedded_layout is not None:
+                            embedded_layout.removeWidget(self)
+                        if (
+                            embed_host is not None
+                            and getattr(embed_host, "_panopilot_editor_widget", None) is self
+                        ):
+                            delattr(embed_host, "_panopilot_editor_widget")
+                        self.setParent(None)
+                        self.deleteLater()
+                        on_closed(final_state)
+
+                    QTimer.singleShot(0, finish_embedded_close)
+                elif window_loop is not None:
+                    window_loop.quit()
 
         app = QApplication.instance()
 
@@ -2988,76 +3486,45 @@ class ExploreWindow:
             False
         )
 
-        window_loop = QEventLoop()
+        window_loop = None
+        if on_closed is None:
+            window_loop = QEventLoop()
 
         widget = EditorWidget()
-        widget.show()
-        widget.raise_()
-        widget.activateWindow()
-        widget.setFocus()
+        embedded_layout = None
 
-        # Normal Qt event dispatch is required by QMediaPlayer, precise timers,
-        # queued worker signals, and Wayland window transitions. Do not poll
-        # QApplication.processEvents() in a Python loop.
+        if embed_host is not None:
+            widget.setParent(embed_host)
+            embedded_layout = embed_host.layout()
+            if embedded_layout is None:
+                embedded_layout = QVBoxLayout(embed_host)
+                embedded_layout.setContentsMargins(0, 0, 0, 0)
+            embedded_layout.addWidget(widget)
+            # Keep a Python reference while Qt owns the child.
+            embed_host._panopilot_editor_widget = widget
+            widget.show()
+            widget.setFocus()
+        else:
+            widget.showMaximized()
+            widget.raise_()
+            widget.activateWindow()
+            widget.setFocus()
+
+        # Single-Clip callers retain the established blocking contract.
+        # Embedded workspaces use the callback path and return immediately,
+        # avoiding a nested GUI event loop inside the main application.
+        if on_closed is not None:
+            return {"embedded": True}
+
         window_loop.exec()
 
-        return {
-            "source_time": float(self.source_time),
-            "source_duration": self.source_duration,
-            "yaw_deg": float(self.state.yaw_deg),
-            "pitch_deg": float(self.state.pitch_deg),
-            "roll_deg": float(
-                self.state.roll_deg
-            ),
-            "fov_deg": float(self.state.fov_deg),
-            "aspect": self.state.aspect,
-            "camera_position_markers": list(self.marker_times),
-            "dormant_camera_position_markers": list(self.dormant_marker_times),
-            "camera_position_count": int(
-                len(self.marker_times)
-                + len(self.dormant_marker_times)
-            ),
-            "camera_motion": {
-                "easing": self.camera_motion_easing,
-                "strength": float(
-                    self.camera_motion_strength
-                ),
-            },
-            "trim_in_source_time": float(self.trim_start),
-            "trim_out_source_time": (
-                float(self.trim_out_source_time)
-                if self.trim_out_source_time is not None
-                else None
-            ),
-            "resolved_trim_out_source_time": float(self.trim_end),
-            "clip_duration": float(self.clip_duration),
-            "clip_local_time": float(self.clip_local_time()),
-            "playback_fps": float(self.playback_fps),
-            "playback_view_mode": str(
-                self.playback_view_mode
-            ),
-            "audio_clock": self.audio_clock,
-            "at_playback_end": bool(self.at_playback_end),
-            "last_render_ms": (
-                float(self.last_render_seconds * 1000.0)
-                if self.last_render_seconds is not None else None
-            ),
-            "last_seek_ms": (
-                float(self.last_seek_seconds * 1000.0)
-                if self.last_seek_seconds is not None else None
-            ),
-            "last_commit": self.last_commit,
-            "camera_exploration_changed": bool(
-                self.camera_exploration_changed
-            ),
-            "project_dirty": bool(self.project_dirty),
-            "can_undo": bool(self.can_undo),
-            "can_redo": bool(self.can_redo),
-            "undo_label": self.undo_label,
-            "redo_label": self.redo_label,
-            "saved_this_session": bool(self.saved_this_session),
-            "ui_backend": "PySide6/Qt",
-        }
+        if embedded_layout is not None:
+            embedded_layout.removeWidget(widget)
+            widget.setParent(None)
+            widget.deleteLater()
+
+        return self.result_state()
+
 
 
 def explore_osv(
@@ -3086,6 +3553,10 @@ def explore_osv(
     use_preview_cache=True,
     audio_enabled=True,
     clip_id=None,
+    initial_mode="reframe",
+    arrange_callback=None,
+    embed_host=None,
+    on_closed=None,
 ):
     view_long_edge = int(view_long_edge)
     if view_long_edge < 320:
@@ -3520,7 +3991,7 @@ def explore_osv(
             active_clip_id,
             source_time=source_time,
             new_source_time=new_source_time,
-            source_duration=source_duration_value,
+            source_duration=source_duration,
             tolerance_s=frame_tolerance,
         )
         return session_payload(
@@ -3711,38 +4182,65 @@ def explore_osv(
         landscape_size=landscape_size,
         portrait_size=portrait_size,
         show_hud=show_hud,
+        initial_mode=initial_mode,
+        arrange_callback=arrange_callback,
     )
 
     window._apply_project_state(
         session_payload()
     )
 
+    def final_payload(final_state):
+        clip = current_clip()
+        return {
+            "source": str(source),
+            "clip_id": (
+                active_clip_id
+                if active_clip_id is not None
+                else (clip.id if clip is not None else None)
+            ),
+            "source_time": float(final_state["source_time"]),
+            "project_path": str(project_path),
+            "project_exists": Path(project_path).exists(),
+            "initial_view_path": path_sample.to_dict() if path_sample is not None else None,
+            "camera_position_count": len(clip.camera_positions) if clip is not None else 0,
+            "project_dirty": bool(session.dirty),
+            "history": session.state(),
+            "preview_cache": cache_entry.to_dict() if cache_entry is not None else None,
+            "panorama": initial_diagnostics,
+            "explore_state": final_state,
+        }
+
+    if on_closed is not None:
+        if embed_host is None:
+            raise ValueError("on_closed requires embed_host")
+
+        def embedded_closed(final_state):
+            try:
+                on_closed(final_payload(final_state))
+            finally:
+                if cache_reader is not None:
+                    cache_reader.close()
+
+        try:
+            window.run(
+                embed_host=embed_host,
+                on_closed=embedded_closed,
+            )
+        except Exception:
+            if cache_reader is not None:
+                cache_reader.close()
+            raise
+        return {
+            "source": str(source),
+            "clip_id": active_clip_id,
+            "project_path": str(project_path),
+            "embedded": True,
+        }
+
     try:
-        final_state = window.run()
+        final_state = window.run(embed_host=embed_host)
+        return final_payload(final_state)
     finally:
         if cache_reader is not None:
             cache_reader.close()
-
-    clip = current_clip()
-    return {
-        "source": str(source),
-        "clip_id": (
-            active_clip_id
-            if active_clip_id is not None
-            else (
-                clip.id
-                if clip is not None
-                else None
-            )
-        ),
-        "source_time": float(final_state["source_time"]),
-        "project_path": str(project_path),
-        "project_exists": Path(project_path).exists(),
-        "initial_view_path": path_sample.to_dict() if path_sample is not None else None,
-        "camera_position_count": len(clip.camera_positions) if clip is not None else 0,
-        "project_dirty": bool(session.dirty),
-        "history": session.state(),
-        "preview_cache": cache_entry.to_dict() if cache_entry is not None else None,
-        "panorama": initial_diagnostics,
-        "explore_state": final_state,
-    }

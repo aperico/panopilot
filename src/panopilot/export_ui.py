@@ -89,6 +89,7 @@ def build_export_summary(
             f"{profile.width}×{profile.height} "
             f"({profile.resolution}, {profile.aspect}) · "
             f"{profile.fps:.0f} fps"
+            + (" (Auto)" if profile.fps_auto_selected else "")
         ),
         (
             "Quality: "

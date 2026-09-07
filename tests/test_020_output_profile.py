@@ -7,7 +7,8 @@ from panopilot.output_profile import (
 
 def test_iteration1_16_9_output_profile():
     profile = output_profile_for_aspect(
-        "16:9"
+        "16:9",
+        fps="30",
     )
 
     assert profile.width == 1920
@@ -19,7 +20,8 @@ def test_iteration1_16_9_output_profile():
 
 def test_iteration1_9_16_output_profile():
     profile = output_profile_for_aspect(
-        "9:16"
+        "9:16",
+        fps="30",
     )
 
     assert profile.width == 1080

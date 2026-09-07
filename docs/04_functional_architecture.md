@@ -1,7 +1,7 @@
 # PanoPilot — Functional Architecture
 
 Status: Draft  
-Baseline: FA-0.21
+Baseline: FA-0.22
 Scope: Iteration 1  
 Parent: `01_system_definition.md`  
 Use Cases: `02_use_cases.md`  
@@ -2112,3 +2112,60 @@ Project Preview / Final Direct Renderer
 # 57. Source Acceptance and Identity Function Chain — PanoPilot 0.41
 
 `selected OSV → stream/duration → DJI calibration/orientation → decode smoke → sampled identity → Clip`. On reopen/preview/export, identity is recomputed and mismatch/missing media is blocked.
+
+
+---
+
+# 57. Background Job Function Chain — PanoPilot 0.42
+
+```text
+Project Organizer action
+        ↓
+BackgroundJobManager
+        ↓ bounded worker pool
+JobContext + CancellationToken
+        ↓
+preview preparation / source validation / final export
+        ↓
+immutable JobSnapshot
+        ↓ 150 ms GUI polling
+Clip readiness / work status / export progress
+```
+
+Final export cancellation propagates into the frame-render loop. Decoder and
+encoder subprocesses are terminated, temporary export state is discarded, and
+the completed destination is replaced only after verification of a successful
+export.
+
+
+---
+
+# 58. Acceptance Measurement Architecture — PanoPilot 0.43
+
+```text
+saved Project
+    ↓
+source identity assertion
+    ↓
+supported OSV profile validation
+    ↓
+preview cache prepare/reuse
+    ├─ camera response benchmark
+    ├─ random scrub benchmark
+    └─ preview A/V timing measurement
+
+canonical camera geometry
+    ↓
+Preview reference map ↔ optimized final map
+    ↓
+0.05 source-pixel equivalence gate
+
+runtime environment
+    ↓
+Fedora + Radeon 890M qualification
+    ↓
+machine-readable acceptance-043.json
+```
+
+The performance measurements use the same 1280×640 @20 fps panoramic editing
+cache and 800-pixel-long-edge conventional view used by the Clip Editor.

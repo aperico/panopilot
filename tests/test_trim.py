@@ -37,13 +37,13 @@ def test_schema_v1_project_migrates_to_v3(tmp_path):
         encoding="utf-8",
     )
     project = load_project(path)
-    assert project.schema_version == 8
+    assert project.schema_version == 10
     assert project.clips[0].trim_in_source_time == 0.0
     assert project.clips[0].trim_out_source_time is None
 
     save_project(project, path)
     disk = json.loads(path.read_text(encoding="utf-8"))
-    assert disk["schema_version"] == 8
+    assert disk["schema_version"] == 10
     assert disk["clips"][0]["trim"] == {
         "in_source_time": 0.0,
         "out_source_time": None,

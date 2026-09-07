@@ -1,0 +1,50 @@
+{
+  "certificate_schema_version": 1,
+  "product": "PanoPilot",
+  "scope": "Iteration 1",
+  "status": "PASS",
+  "requirements_total": 208,
+  "requirements_pass": 208,
+  "requirements_partial": 0,
+  "requirements_open": 0,
+  "acceptance_requirements": [
+    "SYS-MEDIA-001",
+    "SYS-CAM-009",
+    "SYS-AUDIO-003",
+    "SYS-PERF-001",
+    "SYS-PERF-002"
+  ],
+  "reference_system": {
+    "qualified": true,
+    "os_pretty_name": "Fedora Linux 44 (Workstation Edition)",
+    "os_version": "44",
+    "platform": "Linux-7.1.4-204.fc44.x86_64-x86_64-with-glibc2.43",
+    "python": "3.14.7",
+    "machine": "x86_64",
+    "gpu_class": "AMD Radeon 890M / Strix"
+  },
+  "supported_osv_profile": "dji-osmo360-dual-1920-hevc-100fps-v1",
+  "qualified_source_count": 3,
+  "qualified_source_durations_s": [
+    17.685333,
+    6.016,
+    0.661333
+  ],
+  "measurements": {
+    "camera_equivalence_max_source_pixel": 0.043536216020584106,
+    "preview_av_sync_max_ms": 35.00000000000014,
+    "camera_response_worst_clip_p95_ms": 12.769314821343869,
+    "scrub_response_worst_clip_p95_ms": 101.3925094041042
+  },
+  "thresholds": {
+    "camera_equivalence_max_source_pixel": 0.05,
+    "preview_av_sync_max_ms": 100.0,
+    "camera_response_p95_ms": 100.0,
+    "scrub_response_p95_ms": 250.0
+  },
+  "privacy": {
+    "source_paths_included": false,
+    "source_fingerprints_included": false,
+    "preview_cache_paths_included": false
+  }
+}

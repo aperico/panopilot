@@ -1,7 +1,7 @@
 """
 PanoPilot project model.
 
-Project schema v8 persists expected Source Identity while v7 persists Camera Position roll and v6 records final export resolution/quality while v5 records the high-rate adaptive stabilization algorithm; v4 added persisted gyro stabilization amount while v3 added Camera Motion easing settings while
+Project schema v10 persists editable Project metadata (currently the Project name); v9 persists final export FPS selection while v8 persists expected Source Identity, v7 persists Camera Position roll, and v6 records final export resolution/quality while v5 records the high-rate adaptive stabilization algorithm; v4 added persisted gyro stabilization amount while v3 added Camera Motion easing settings while
 preserving the schema-v2 continuous trim range per Clip and
 preserving the fundamental reframing invariant:
 
@@ -11,7 +11,7 @@ preserving the fundamental reframing invariant:
 A Camera Position outside the active trim remains persisted and becomes
 dormant. Expanding the trim later can make it active again.
 
-Schema v1/v2/v3/v4/v5/v6/v7 projects are upgraded in memory automatically and are written as v8
+Schema v1-v9 projects are upgraded in memory automatically and are written as v10
 on their next explicit Save.
 """
 from __future__ import annotations
@@ -27,15 +27,17 @@ from typing import Optional
 
 from .media_identity import source_identity, source_reference_status
 from .output_profile import (
+    DEFAULT_OUTPUT_FPS,
     DEFAULT_OUTPUT_QUALITY,
     DEFAULT_OUTPUT_RESOLUTION,
+    OUTPUT_FPS_SELECTIONS,
     OUTPUT_QUALITIES,
     OUTPUT_RESOLUTIONS,
 )
 
 
-SCHEMA_VERSION = 8
-SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8)
+SCHEMA_VERSION = 10
+SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
 TIME_MATCH_TOLERANCE_S = 1e-6
 
 CAMERA_MOTION_EASINGS = (
@@ -289,9 +291,11 @@ class Clip:
 
 @dataclass
 class Project:
+    name: str = "Untitled Project"
     output_aspect: str = "16:9"
     output_resolution: str = DEFAULT_OUTPUT_RESOLUTION
     output_quality: str = DEFAULT_OUTPUT_QUALITY
+    output_fps: str = DEFAULT_OUTPUT_FPS
     clips: list[Clip] = field(default_factory=list)
     camera_motion_easing: str = DEFAULT_CAMERA_MOTION_EASING
     camera_motion_strength: float = DEFAULT_CAMERA_MOTION_STRENGTH
@@ -300,6 +304,7 @@ class Project:
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self):
+        self.set_name(self.name)
         if self.output_aspect not in ("16:9", "9:16"):
             raise ValueError("output_aspect must be '16:9' or '9:16'")
 
@@ -308,6 +313,9 @@ class Project:
         )
         self.set_output_quality(
             self.output_quality
+        )
+        self.set_output_fps(
+            self.output_fps
         )
 
         self.set_camera_motion(
@@ -320,22 +328,43 @@ class Project:
             raise ValueError("Unsupported stabilization algorithm")
         self.schema_version = SCHEMA_VERSION
 
+
+    def set_name(self, name):
+        value = " ".join(str(name).strip().split())
+        if not value:
+            raise ValueError("Project name must not be empty")
+        if len(value) > 120:
+            raise ValueError("Project name must be 120 characters or fewer")
+        self.name = value
+        return {"name": value}
+
     def set_output_resolution(self, resolution):
         resolution = str(resolution).lower()
         if resolution not in OUTPUT_RESOLUTIONS:
             raise ValueError(
-                "output resolution must be 720p or 1080p"
+                "output resolution must be 720p, 1080p, 1440p, or 2160p"
             )
         self.output_resolution = resolution
         return {
             "resolution": resolution,
         }
 
+    def set_output_fps(self, fps):
+        fps = str(fps).lower()
+        if fps not in OUTPUT_FPS_SELECTIONS:
+            raise ValueError(
+                "output fps must be auto, 24, 25, 30, 50, or 60"
+            )
+        self.output_fps = fps
+        return {
+            "fps": fps,
+        }
+
     def set_output_quality(self, quality):
         quality = str(quality).lower()
         if quality not in OUTPUT_QUALITIES:
             raise ValueError(
-                "output quality must be standard, high, or very-high"
+                "output quality must be standard, high, very-high, or master"
             )
         self.output_quality = quality
         return {
@@ -529,10 +558,12 @@ class Project:
     def to_dict(self):
         return {
             "schema_version": SCHEMA_VERSION,
+            "name": self.name,
             "output_frame": {
                 "aspect": self.output_aspect,
                 "resolution": self.output_resolution,
                 "quality": self.output_quality,
+                "fps": self.output_fps,
             },
             "camera_motion": {
                 "easing": self.camera_motion_easing,
@@ -560,6 +591,7 @@ class Project:
         stabilization = data.get("stabilization") or {}
 
         return cls(
+            name=str(data.get("name", "Untitled Project")),
             output_aspect=str(output_frame.get("aspect", "16:9")),
             output_resolution=str(
                 output_frame.get(
@@ -576,6 +608,14 @@ class Project:
                 )
                 if version >= 6
                 else DEFAULT_OUTPUT_QUALITY
+            ),
+            output_fps=str(
+                output_frame.get(
+                    "fps",
+                    DEFAULT_OUTPUT_FPS,
+                )
+                if version >= 9
+                else "30"
             ),
             clips=[Clip.from_dict(clip) for clip in data.get("clips", [])],
             camera_motion_easing=str(
@@ -789,10 +829,25 @@ def commit_camera_position_to_clip(
 
 
 
+def _project_storage_dict(project: Project):
+    """Return a persistence-safe Project dictionary.
+
+    Project files are self-contained references to the user's source media.
+    Source recordings therefore use absolute filesystem paths on disk even if
+    a caller constructed the in-memory Project with a relative path.
+    """
+    data = project.to_dict()
+    for clip in data.get("clips", []):
+        source = Path(str(clip.get("source", ""))).expanduser()
+        if str(source):
+            clip["source"] = str(source.resolve(strict=False))
+    return data
+
+
 def _project_json_text(project: Project):
     return (
         json.dumps(
-            project.to_dict(),
+            _project_storage_dict(project),
             indent=2,
         )
         + "\n"

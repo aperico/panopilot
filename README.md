@@ -1,6 +1,85 @@
 # PanoPilot
 
-Current internal version: `0.41.0`
+Current internal version: `0.52.2`
+
+# 0.52 — Project Home, Clip browser, and multi-project files
+
+PanoPilot now treats the Home screen as the Project-level workspace and keeps
+Clip editing contextual. The editable Project name is the main heading. Below it,
+Project actions start with **Arrange Clips**, then Final Export and Open Project.
+The bottom Clip browser wraps thumbnail cards into vertically scrollable rows; cards
+show source/Clip duration, Camera Position count, and preview readiness, while the
+full filename and absolute source path stay available on hover.
+
+Double-click a Clip or right-click it and choose **Edit**. The context menu also
+provides **View Clip Info** and **Remove From Project**. If a Clip preview still
+needs preparation, the edit request is retained and the editor opens automatically
+when preparation completes. Clip Editor modes are now only **Reframe** and **Trim**;
+Arrange is Project-level only.
+
+Use **File > Open Project…** (`Ctrl+O`) to switch to any PanoPilot Project JSON.
+Only one Project is active at a time. **Save Project As…** can write to any chosen
+destination, and every saved Clip source reference is serialized as an absolute
+filesystem path so reopening the Project does not depend on the process working
+directory.
+
+
+
+# 0.51.1 — Arrange polish, Clip editing recovery, and Final Export access
+
+Project Home now exposes **Edit Selected Clip** and **Export Final Video…** directly.
+Double-click editing resolves the clicked Clip ID explicitly, avoiding stale selection
+state. The menu bar also provides a dedicated **Export** menu for final-video export.
+
+Arrange remains a Project-level sequencing workflow. Its workspace now shows only
+`← Project` as workflow navigation; Reframe and Trim stay Clip Editor modes. The
+Arrange track is compact (100 px), Clip cards remain duration-proportional, and each
+Clip uses one centered aspect-preserving representative thumbnail. Timeline zoom,
+Fit, horizontal pan/scroll, and drag/drop reorder remain available.
+
+# 0.51 — Navigable timelines, Project identity, and Arrange Clips
+
+PanoPilot 0.51 extends the media-first editor with a shared timeline navigation
+model and a dedicated Project arrangement workflow.
+
+## Timeline navigation
+
+Reframe and Trim timelines now support:
+
+- mouse-wheel zoom around the pointer position;
+- `Shift` + wheel / horizontal trackpad movement to pan;
+- a horizontal scrollbar when the visible range is zoomed;
+- `-`, `Fit`, and `+` controls;
+- automatic scrolling that keeps the playhead visible during playback;
+- sampled thumbnails regenerated for the visible time range so zooming increases
+  useful temporal detail without stretching images.
+
+The View Path continues after the final Camera Position by holding its final
+framing while Source Time advances to Clip Out. Visual playback uses the
+editor's monotonic clock as the authority; Qt Multimedia follows as the audio
+transport rather than being allowed to freeze the visual timeline.
+
+## Project Home / Save As
+
+The Project Home screen now exposes the persisted Project name together with
+Project Settings and Arrange Clips. Project names are stored in schema v10.
+
+Use **File > Save Project As…** (`Ctrl+Shift+S`) to create another Project file
+without overwriting the current one. The newly saved file becomes the active
+Project in the current single-project desktop session.
+
+## Arrange Clips
+
+A third editing workflow is available beside Reframe and Trim:
+
+```text
+Reframe | Trim | Arrange
+```
+
+Arrange is a single horizontal Project timeline with no playback monitor. Clip
+width is proportional to each Clip's active trimmed duration. Drag clips to
+reorder them. The same wheel zoom, horizontal pan, scrollbar, Fit, and +/-
+controls used by the media timeline are used here as well.
 
 # 0.18 — Multi-Clip sequential project editing
 
@@ -391,12 +470,12 @@ without becoming durable in the project file.
 
 0.18.3 changes that interaction.
 
-## `Set Camera`
+## `Save Camera Position`
 
 The primary reframing action is now called:
 
 ```text
-Set Camera
+Save Camera Position
 ```
 
 Clicking it, or pressing Enter, performs:
@@ -438,7 +517,7 @@ panopilot project-edit \
   --project results/panopilot_project.json
 ```
 
-Edit `clip-1`, create one clearly non-default framing, then click **Set Camera**.
+Edit `clip-1`, create one clearly non-default framing, then click **Save Camera Position**.
 
 You should immediately see `CAM 1`.
 
@@ -485,7 +564,7 @@ reset when no Camera Position has been saved yet.
 Trim In / Trim Out
     define which Source Time range belongs to the Clip
 
-Set Camera
+Save Camera Position
     saves yaw / pitch / FOV as a Camera Position
 ```
 
@@ -522,13 +601,13 @@ project is still unchanged
 The editor displays:
 
 ```text
-Preview-only camera — Set Camera to save this view
+Preview-only camera — Save Camera Position to save this view
 ```
 
 If you want the view to become part of the edited video:
 
 ```text
-Set Camera
+Save Camera Position
         ↓
 CAM 1
         ↓
@@ -543,10 +622,10 @@ persisted View Path rather than a transient camera hold.
 1. Open `clip-1`.
 2. Confirm `CAM 0`.
 3. Drag to a clearly different view.
-4. Press Play **without** Set Camera.
+4. Press Play **without** Save Camera Position.
 5. The video must keep that view instead of resetting to 0/0/90.
 6. Pause. The project must still be Saved because this was preview-only.
-7. Click **Set Camera**.
+7. Click **Save Camera Position**.
 8. Confirm `CAM 1`.
 9. Now seek/play anywhere: the persisted View Path must hold/use that Camera
    Position.
@@ -559,7 +638,7 @@ panopilot camera-at \
   --time 2.0
 ```
 
-Expected after Set Camera:
+Expected after Save Camera Position:
 
 ```text
 camera_position_count: 1
@@ -1115,7 +1194,7 @@ or, on a normal Linux desktop:
 ~/.local/share/panopilot/project-backups/
 ```
 
-This includes Set Camera auto-saves because they use the normal Project save
+This includes Save Camera Position auto-saves because they use the normal Project save
 boundary.
 
 If a checkout-local Project file is accidentally removed, use:
@@ -2123,7 +2202,7 @@ Step: [ Fine 0.25° | Normal 1° | Coarse 5° ]
 
 Each click changes only the transient exploratory camera. Hold an arrow button
 for continuous rotation. The view becomes a persisted Camera Position only
-when **Set Camera** is selected, preserving PanoPilot's exploration-versus-edit
+when **Save Camera Position** is selected, preserving PanoPilot's exploration-versus-edit
 invariant.
 
 Keyboard equivalents are:
@@ -2162,7 +2241,7 @@ The same angular step selector is shared by yaw, pitch, and roll.
 - holding either button continuously rolls the view;
 - `[` is the counter-clockwise keyboard shortcut;
 - `]` is the clockwise keyboard shortcut;
-- roll navigation remains transient until **Set Camera** is pressed.
+- roll navigation remains transient until **Save Camera Position** is pressed.
 
 Camera Position roll is persisted in Project schema v7 and is interpolated
 between Camera Positions using the shortest angular route, just like yaw.
@@ -2174,3 +2253,453 @@ their previous framing exactly.
 # 0.41 — Requirements Closure, Source Integrity, and Camera-Time Editing
 
 Projects now persist a sampled SHA-256 expected Source Identity. Mismatched media is blocked rather than silently substituted. Multi-file import validates each OSV independently. Camera Position markers are draggable on the source timeline and preserve yaw/pitch/roll/FOV while changing Source Time. `docs/06_requirements_traceability.md` maps every normative requirement to implementation, verification evidence, and status; duplicate requirement IDs are now a test failure.
+
+
+# 0.42 — Background Work Isolation and Safe Cancellation
+
+PanoPilot no longer treats preview preparation and final export as modal
+foreground work in the Project Organizer.
+
+## Per-Clip preview jobs
+
+Every Clip now has an independent background preview-preparation job. The
+Organizer shows one of the following states directly on each Clip row:
+
+```text
+[PREPARING PREVIEW]
+[PREVIEW READY]
+[PREVIEW FAILED]
+[PREVIEW CANCELLED]
+```
+
+A failed preview job does not poison the other Clip jobs. Clips whose preview is
+already ready remain selectable and usable while another Clip is still
+preparing.
+
+The worker pool is bounded to two concurrent jobs so the desktop event loop
+remains responsive without launching an unbounded number of FFmpeg/OpenCV
+pipelines.
+
+## Background source validation
+
+Recordings selected through **Add OSV Files…** are validated outside the Qt GUI
+thread. Successful validation is committed to the Project only after the worker
+finishes; rejected sources are reported independently. Existing ready Clips
+remain available while validation runs.
+
+## Background export
+
+Final export now runs from the last saved Project snapshot while the Organizer
+remains responsive:
+
+```text
+saved Project snapshot
+        ↓
+background final export
+        ↓
+Organizer remains usable
+        ↓
+new edits apply to the next export
+```
+
+The Organizer exposes live export progress and **Cancel Export**. Cancellation
+is cooperative inside the final frame-render loop and terminates active FFmpeg
+decode/encode subprocesses. Transactional export semantics are preserved: the
+`.preparing.mp4` file is removed and an existing completed destination is not
+replaced by a cancelled export.
+
+Preview-cache cancellation is also transactional. Temporary
+`panorama.preparing.mp4` and metadata files are removed when preparation is
+cancelled.
+
+This release closes the remaining Iteration-1 background-work requirements:
+
+- `SYS-PREV-004` Per-Clip Preparation Isolation;
+- `SYS-PERF-003` Ready-Clip Isolation;
+- `SYS-PERF-004` Long-Running Work.
+
+The remaining Iteration-1 closure work is quantitative/profile validation in
+0.43.
+
+
+# 0.43 — Quantitative Iteration-1 Acceptance
+
+0.43 resolves the remaining numeric acceptance targets and adds a repeatable
+reference-system verification command.
+
+Resolved targets:
+
+```text
+Supported OSV:
+  dji-osmo360-dual-1920-hevc-100fps-v1
+
+Preview/final Camera geometry:
+  max source-map error <= 0.05 panorama pixel
+
+Ready-preview Camera response:
+  p95 <= 100 ms
+
+Random scrub response:
+  p95 <= 250 ms
+
+Preview A/V synchronization:
+  <= 100 ms
+```
+
+Run on the Fedora / AMD Radeon 890M reference machine:
+
+```bash
+panopilot acceptance-run \
+  results/panopilot_project.json \
+  --report results/acceptance-043.json
+```
+
+The command validates every real Project source, prepares/reuses the normal
+preview cache, measures camera response and random seek latency, measures
+preview A/V timing, verifies camera-map equivalence for 720p/1080p and both
+aspect ratios, and records the reference-system qualification.
+
+A non-zero exit status means at least one acceptance gate failed or the runtime
+was not recognized as the designated reference system.
+
+The Project Preview playback clock is also improved in 0.43: when Qt Multimedia
+audio is available, its current media position becomes the video playback
+clock. The monotonic clock remains a fallback during media seek/startup.
+
+The static RTM is now:
+
+```text
+205 PASS
+3 PARTIAL
+0 OPEN
+```
+
+The three remaining PARTIAL rows are field-verification gates only:
+`SYS-AUDIO-003`, `SYS-PERF-001`, and `SYS-PERF-002`.
+
+A passing `acceptance-043.json` from the reference Fedora system provides the
+evidence required for 208/208 Iteration-1 closure.
+
+
+# 0.44 — Iteration-1 Formal Closure
+
+The PanoPilot 0.43 quantitative acceptance suite completed successfully on the
+designated Fedora / AMD Radeon 890M reference system.
+
+Final Iteration-1 requirements status:
+
+```text
+208 normative requirements
+
+PASS       208
+PARTIAL      0
+OPEN         0
+```
+
+Measured reference-system results:
+
+```text
+Preview/final Camera equivalence:
+  0.043536 source px  <= 0.05
+
+Preview A/V synchronization:
+  35.000 ms worst case <= 100 ms
+
+Ready-preview Camera response:
+  12.769 ms worst Clip p95 <= 100 ms
+
+Random scrub response:
+  101.393 ms worst Clip p95 <= 250 ms
+
+Supported DJI OSV profile:
+  3 / 3 reference recordings PASS
+```
+
+0.44 introduces a formal certificate step:
+
+```bash
+panopilot acceptance-certify \
+  results/acceptance-043.json \
+  --output results/iteration1-acceptance-certificate.json
+```
+
+The certificate validates the acceptance schema, approved thresholds,
+reference-system qualification, all five acceptance requirements, and the
+measured limits. It intentionally excludes Source paths, fingerprints, and
+preview-cache paths.
+
+The release includes:
+
+```text
+docs/07_quantitative_acceptance.md
+docs/08_iteration1_verification_report.md
+docs/iteration1_acceptance_certificate.json
+```
+
+Iteration 1 is now a frozen requirements baseline. New development should
+proceed under the next product baseline rather than silently changing accepted
+Iteration-1 requirements.
+
+
+
+# 0.47 — Workflow-focused Editor + Responsive Desktop
+
+PanoPilot 0.47 addresses the first visual acceptance findings from the 0.46
+workspace. Rendering, stabilization, View Path, trim, and export algorithms are
+unchanged.
+
+The desktop now opens maximized by default but remains a normal resizable window.
+The embedded viewer scales to the available canvas instead of imposing the render
+frame size on the application window. The dark theme also defines foreground and
+control colors explicitly, avoiding dark text on dark surfaces when the host Qt /
+GNOME palette is light.
+
+Clip editing is split into two explicit workflow modes:
+
+```text
+Reframe
+  drag / wheel
+  Save Camera Position
+  Camera Position markers
+  [Fine camera controls]
+
+Trim
+  Trim In / Trim Out / Clear
+  source thumbnail strip
+  trim boundaries
+```
+
+Only the active task's tools and timeline annotations are shown. In particular,
+trim controls and IN/OUT flags are not visible while reframing.
+
+`Save Camera Position` means: save the current direction, roll, and zoom at the
+current playhead time. PanoPilot interpolates camera motion between these saved
+Camera Positions during playback and export. If a Camera Position already exists
+at the same time, the action updates it.
+
+Thumbnail policy:
+
+- the Project Clip strip uses a compact thumbnail generated from the existing
+  disposable panoramic preview cache;
+- the Trim workflow lazily samples six source thumbnails across the cached preview
+  to make content boundaries easier to find;
+- thumbnail generation never decodes original dual-lens DJI media and thumbnails
+  never become authoritative Project state.
+
+# 0.46 — Focus-first Workspace + GUI Architecture
+
+PanoPilot 0.46 is a UX/desktop-architecture refactor. Rendering, stitching,
+stabilization, Camera Position, View Path, trim, and export semantics are
+unchanged.
+
+The permanent left/right Project/Editor splitter introduced in 0.45 has been
+removed. The default workspace is now vertically composed around the reframed
+output:
+
+```text
+Project/global actions
+Compact horizontal Clip strip
+[Project Settings — collapsed by default]
+Reframed output canvas
+Clip transport + Camera action + full-width timeline
+[Fine camera controls — collapsed by default]
+```
+
+Key UX changes:
+
+- the reframed output is again the dominant workspace element;
+- Clips remain immediately accessible in a compact horizontal strip;
+- Project/export settings use progressive disclosure;
+- fine yaw/pitch/roll/easing controls use progressive disclosure;
+- Focus mode hides Project chrome to maximize the viewer;
+- `Save Camera Position` remains the explicit primary edit boundary.
+
+Desktop architecture also advances beyond the 0.45 prototype:
+
+- Clip-strip display data is produced by a GUI-framework-agnostic presentation
+  model and adapted to Qt through `QAbstractListModel`;
+- workspace summary composition lives in `workspace_presenter.py`;
+- Qt styling is centralized in `desktop_theme.py`;
+- embedded Clip editing uses the application's existing Qt event loop and a
+  completion callback instead of starting a nested `QEventLoop`;
+- standalone `panopilot explore` retains its established blocking contract.
+
+This is an incremental move toward **Qt Model/View + MVP-style presentation
+boundaries** rather than classic monolithic MVC. Domain and rendering modules
+remain independent from the desktop presentation layer.
+
+# 0.45 — Iteration 2: FPS Selection + Persistent Workspace
+
+Iteration 1 remains formally closed at **208/208 PASS**. PanoPilot 0.45 starts a
+separate Iteration-2 baseline.
+
+## Final FPS
+
+The Project Export row now contains:
+
+```text
+Size [1080p]   FPS [Auto (60 fps recommended)]   Quality [High]
+```
+
+Selectable final frame rates:
+
+```text
+Auto (recommended)
+24 fps
+25 fps
+30 fps
+50 fps
+60 fps
+```
+
+`Auto` is the default for **new Projects**. The current qualified DJI Osmo 360
+source profile records at 100 fps, so Auto resolves to **60 fps**. Automatic
+selection is intentionally capped at 60 fps as the high-quality conventional
+H.264 delivery target for modern phones, TVs, and laptops.
+
+For explicit control:
+
+```bash
+panopilot project-export project.json -o final.mp4 --fps 30
+panopilot project-export project.json -o final.mp4 --fps 50
+panopilot project-export project.json -o final.mp4 --fps 60
+```
+
+50 fps is available when the User prefers an exact half-rate cadence from the
+100 fps DJI source. 30 fps remains useful when smaller files and faster export
+matter more than motion fluidity.
+
+### Legacy behavior is protected
+
+PanoPilot 0.44 and older Projects had a fixed 30 fps final output. Loading one
+of those Projects in 0.45 migrates it to explicit `30` fps rather than silently
+changing it to Auto/60. Only newly created Projects default to Auto.
+
+Project schema is now **v9**:
+
+```json
+"output_frame": {
+  "aspect": "16:9",
+  "resolution": "1080p",
+  "quality": "high",
+  "fps": "auto"
+}
+```
+
+## Persistent Project Workspace
+
+Opening **Edit Selected Clip** no longer destroys the Organizer window and
+recreates it afterward. The Organizer remains alive while the proven Clip
+Editor runs; when editing closes, the saved Project is reloaded into the same
+workspace and the edited Clip remains selected.
+
+The proven Clip Editor is now embedded directly in the right-hand side of the
+Project workspace. The Clip sequence remains visible on the left while the
+active reframing canvas, timeline, arrows, roll controls, trim controls, and
+Camera Position tools remain available on the right.
+
+Iteration-2 requirements live separately in:
+
+```text
+docs/09_iteration2_requirements.md
+docs/10_iteration2_traceability.md
+```
+
+
+# 0.48 — Classic Menu + Status-Bar Workspace
+
+PanoPilot 0.48 removes the remaining global command rows from the central
+workspace. The Project shell is now a native Qt `QMainWindow` with a classic
+desktop menu hierarchy:
+
+```text
+File      Add Media / Save / Export / Close
+Edit      Undo / Redo
+Clip      Edit / Remove / Move Earlier / Move Later
+View      Project Preview / Focus Viewer / Show Clip Strip
+Settings  Project Settings
+```
+
+Project duration, output profile, stabilization, save state, background preview
+preparation and export progress are fixed in the bottom status bar. Project
+Settings opens in a modeless dialog.
+
+When a Clip Editor is active the Clip strip is hidden automatically and the
+embedded editor's Save/Undo/Redo commands are routed through the parent menu bar.
+The reframed preview surface fills the complete media container; the actual output
+frame preserves its aspect ratio with dark letterboxing inside that surface.
+
+
+# 0.49 — Media-First Clip Editor
+
+PanoPilot 0.49 refines the Clip Editor after desktop visual review and borrows the most useful interaction hierarchy from DJI Mimo without copying its mobile-only shell.
+
+The editor is now organized as:
+
+```text
+← Project     Reframe | Trim
+
+┌───────────────────────────────┬────────────────────┐
+│                               │ Camera Positions   │
+│       reframed preview        │ ◆ Add / Update     │
+│                               │ saved count / del  │
+│                               │ Fine camera        │
+└───────────────────────────────┴────────────────────┘
+
+[ thin source filmstrip ]
+▶  ───────── timeline ◆ ◆ ─────────  00:03 / 00:18
+```
+
+In **Trim**, the right Camera rail disappears and the preview uses that width; the contextual Trim controls replace Camera controls. The same thin filmstrip remains as visual navigation context.
+
+Camera Positions use diamond markers. Clicking a diamond seeks directly to the saved Source Time. Dragging the diamond moves that Camera Position in Source Time. The persisted View Path and interpolation semantics are unchanged.
+
+The embedded editor also exposes an explicit `← Project` action. Closing still follows the existing save/discard/cancel transaction contract.
+
+
+# 0.50 — Segment-Oriented Reframing + Responsive Filmstrip
+
+PanoPilot 0.50 tightens the Reframe interaction around Camera Position diamonds.
+A saved Camera Position now acts as the edit anchor for the segment to its right:
+
+```text
+◆ CP1 -------- current playhead -------- ◆ CP2
+   ↑
+   drag / wheel / fine controls update CP1 automatically
+```
+
+Clicking a diamond still seeks to that exact Camera Position. Reframing after the
+seek automatically updates and saves that diamond. At an arbitrary time between
+two diamonds, view changes update the closest diamond to the left. Before the
+first diamond, changes remain preview-only so PanoPilot never invents a Camera
+Position implicitly; `◆ Add at Playhead` creates the first/new position.
+
+Direct-manipulation transaction boundaries remain deliberate: one mouse drag is
+one Camera Position edit, while wheel/trackpad and auto-repeat fine-control bursts
+are debounced into one edit after the gesture settles. Moving a diamond in Source
+Time remains its own transactional edit.
+
+The Fine Camera controls are now always visible whenever Reframe mode is active;
+the previous disclosure toggle is removed. Trim mode continues to remove the
+Camera rail entirely so the preview reclaims that width.
+
+Timeline thumbnails are now a responsive filmstrip of discrete sampled frames.
+The editor preloads representative frames from the disposable panoramic preview
+cache, then chooses the number of visible tiles from the current timeline width.
+Every tile preserves image aspect ratio and center-crops as needed; no thumbnail is
+stretched horizontally to fill space.
+
+Initial editor presentation also re-fits after Qt completes the first maximized /
+embedded layout pass. The preview uses the media canvas geometry as its sizing
+authority and the QLabel ignores pixmap size hints in both dimensions, removing
+the previous first-click-to-fit behavior.
+
+
+## Branding assets
+
+PanoPilot bundles `src/panopilot/assets/panopilot_logo.svg` for the Home-screen wordmark and `src/panopilot/assets/panopilot_icon.svg` for the application icon.
+
+
+## Final export quality
+
+PanoPilot supports 720p, 1080p, 1440p, and 2160p/4K delivery. High is the recommended default (H.264 CRF 16 / slow); Very High uses CRF 13 / slow; Master uses CRF 10 / slow for archival or later transcoding. Higher resolutions and quality levels increase render time and file size.

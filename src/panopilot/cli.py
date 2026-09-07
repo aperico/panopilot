@@ -6,6 +6,14 @@ from pathlib import Path
 import cv2
 
 from . import __version__
+from .acceptance import (
+    format_acceptance_summary,
+    run_iteration1_acceptance,
+)
+from .acceptance_certificate import (
+    certify_acceptance_report_file,
+    format_acceptance_certificate,
+)
 from .cache import PreviewProfile, ensure_preview_cache
 from .explore import explore_osv
 from .export_ui import (
@@ -340,13 +348,11 @@ def _cmd_prepare_preview(args):
 
 
 def _cmd_project_edit(args):
-    project_path = Path(
-        args.project
-    )
+    active_project_path = Path(args.project).expanduser().resolve(strict=False)
 
-    if not project_path.exists():
+    if not active_project_path.exists():
         backup = latest_project_backup(
-            project_path
+            active_project_path
         )
 
         if backup is not None:
@@ -371,10 +377,20 @@ def _cmd_project_edit(args):
 
     while True:
         action = run_project_editor(
-            args.project,
+            active_project_path,
             import_sources=pending_sources,
+            view_long_edge=args.view_long_edge,
+            preview_fps=args.preview_fps,
+            cache_dir=args.cache_dir,
+            rebuild_preview=args.rebuild_preview,
+            audio_enabled=(
+                not args.no_playback_audio
+            ),
         )
         pending_sources = []
+        returned_project_path = action.get("project_path")
+        if returned_project_path:
+            active_project_path = Path(returned_project_path).expanduser().resolve(strict=False)
 
         action_name = action.get(
             "action"
@@ -392,7 +408,7 @@ def _cmd_project_edit(args):
 
             def export_task(progress):
                 return export_project_video(
-                    args.project,
+                    active_project_path,
                     output,
                     progress_callback=(
                         progress
@@ -440,7 +456,7 @@ def _cmd_project_edit(args):
 
         if action_name == "preview":
             result = run_project_preview(
-                args.project,
+                active_project_path,
                 view_long_edge=args.view_long_edge,
                 preview_fps=args.preview_fps,
                 cache_dir=args.cache_dir,
@@ -463,7 +479,7 @@ def _cmd_project_edit(args):
             return
 
         project = load_project(
-            args.project
+            active_project_path
         )
         clip = project.clip_for_id(
             action["clip_id"]
@@ -476,7 +492,7 @@ def _cmd_project_edit(args):
 
         result = explore_osv(
             clip.source,
-            project_path=args.project,
+            project_path=active_project_path,
             clip_id=clip.id,
             source_time=clip.trim_in_source_time,
             view_long_edge=args.view_long_edge,
@@ -551,6 +567,9 @@ def _cmd_project_export(args):
         ),
         output_quality=(
             args.quality
+        ),
+        output_fps=(
+            args.fps
         ),
         crf=args.crf,
         preset=args.preset,
@@ -838,6 +857,79 @@ def _cmd_project_recover(args):
 
 
 
+
+def _cmd_acceptance_run(args):
+    def progress(message):
+        print(
+            message,
+            flush=True,
+        )
+
+    result = run_iteration1_acceptance(
+        args.project,
+        report_path=args.report,
+        cache_dir=args.cache_dir,
+        rebuild_preview=(
+            args.rebuild_preview
+        ),
+        progress_callback=progress,
+    )
+
+    print()
+    print(
+        format_acceptance_summary(
+            result
+        )
+    )
+
+    if args.report:
+        print(
+            f"Report: {args.report}"
+        )
+
+    if args.json:
+        print(
+            json.dumps(
+                result,
+                indent=2,
+            )
+        )
+
+    if not result[
+        "iteration1_acceptance_qualified"
+    ]:
+        raise SystemExit(
+            2
+        )
+
+
+
+def _cmd_acceptance_certify(args):
+    certificate = certify_acceptance_report_file(
+        args.report,
+        output_path=args.output,
+    )
+
+    print(
+        format_acceptance_certificate(
+            certificate
+        )
+    )
+
+    if args.output:
+        print(
+            f"Certificate: {args.output}"
+        )
+
+    if args.json:
+        print(
+            json.dumps(
+                certificate,
+                indent=2,
+            )
+        )
+
+
 def _cmd_project_info(args):
     project = load_project(args.project)
 
@@ -1035,6 +1127,71 @@ def build_parser():
         func=_cmd_project_recover
     )
 
+    acceptance_run = sub.add_parser(
+        "acceptance-run",
+        help=(
+            "Run the Iteration-1 quantitative acceptance suite on a real Project"
+        ),
+    )
+    acceptance_run.add_argument(
+        "project",
+        help="Project JSON containing the reference source recordings",
+    )
+    acceptance_run.add_argument(
+        "--report",
+        default="results/acceptance-043.json",
+        help=(
+            "JSON acceptance report path "
+            "(default: results/acceptance-043.json)"
+        ),
+    )
+    acceptance_run.add_argument(
+        "--cache-dir",
+        default=None,
+        help="Optional preview-cache root",
+    )
+    acceptance_run.add_argument(
+        "--rebuild-preview",
+        action="store_true",
+        help="Force rebuilding acceptance preview caches",
+    )
+    acceptance_run.add_argument(
+        "--json",
+        action="store_true",
+        help="Also print the full JSON report",
+    )
+    acceptance_run.set_defaults(
+        func=_cmd_acceptance_run
+    )
+
+    acceptance_certify = sub.add_parser(
+        "acceptance-certify",
+        help=(
+            "Validate a completed Iteration-1 acceptance report and "
+            "write a sanitized closure certificate"
+        ),
+    )
+    acceptance_certify.add_argument(
+        "report",
+        help="acceptance-run JSON report",
+    )
+    acceptance_certify.add_argument(
+        "--output",
+        default="results/iteration1-acceptance-certificate.json",
+        help=(
+            "Sanitized certificate path "
+            "(default: results/iteration1-acceptance-certificate.json)"
+        ),
+    )
+    acceptance_certify.add_argument(
+        "--json",
+        action="store_true",
+        help="Also print the full sanitized certificate",
+    )
+    acceptance_certify.set_defaults(
+        func=_cmd_acceptance_certify
+    )
+
     project_info = sub.add_parser(
         "project-info",
         help="Show the current prototype project and committed Camera Positions",
@@ -1151,11 +1308,30 @@ def build_parser():
         choices=(
             "720p",
             "1080p",
+            "1440p",
+            "2160p",
         ),
         default=None,
         help=(
             "Final video size override. Default uses the saved Project "
-            "setting (720p or 1080p)."
+            "setting (720p, 1080p, 1440p, or 2160p)."
+        ),
+    )
+    project_export.add_argument(
+        "--fps",
+        choices=(
+            "auto",
+            "24",
+            "25",
+            "30",
+            "50",
+            "60",
+        ),
+        default=None,
+        help=(
+            "Final frame-rate override. Default uses the saved Project "
+            "setting. 'auto' selects the highest device-friendly rate up "
+            "to 60 fps; the current 100 fps DJI profile resolves to 60 fps."
         ),
     )
     project_export.add_argument(
@@ -1164,6 +1340,7 @@ def build_parser():
             "standard",
             "high",
             "very-high",
+            "master",
         ),
         default=None,
         help=(

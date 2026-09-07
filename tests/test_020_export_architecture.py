@@ -17,8 +17,12 @@ def test_project_organizer_exposes_export_action():
         project_editor_module
     )
 
-    assert '"Export Project…"' in source
-    assert 'state["action"] = "export"' in source
+    assert 'self.export_action = QAction("Export &Final Video…", self)' in source
+    assert 'self.export_action.triggered.connect(self._export_project)' in source
+    assert 'file_menu.addAction(self.export_action)' in source
+    assert 'BackgroundJobManager' in source
+    assert 'export_project_video(' in source
+    assert 'self.abort_export_button = QPushButton("Abort")' in source
     assert "getSaveFileName" in source
 
 

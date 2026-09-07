@@ -1,7 +1,7 @@
 # PanoPilot — Technical Spikes
 
 Status: Draft  
-Baseline: TS-0.17
+Baseline: TS-0.18
 Scope: Iteration 1 Architecture Validation  
 Parent: `04_functional_architecture.md`
 
@@ -1448,3 +1448,38 @@ Acceptance criteria:
 # 29. Requirements Integrity Gate — PanoPilot 0.41
 
 0.41 normalizes duplicate requirement identifiers and makes traceability an executable build gate.
+
+
+---
+
+# 29. Background Work Isolation Spike — PanoPilot 0.42
+
+The previous modal loading model kept the Qt event loop alive but intentionally
+blocked the editing workflow. 0.42 validates a bounded background-job model.
+
+Acceptance evidence:
+
+- one failing preview job does not alter a successful preview job;
+- a long-running job and an unrelated short job can progress independently;
+- cooperative cancellation reaches a deterministic CANCELLED terminal state;
+- preview and final-export temporary files remain transactional;
+- Project Organizer source validation, preview preparation, and export no
+  longer execute on the GUI thread.
+
+
+---
+
+# 30. Quantitative Acceptance Harness — PanoPilot 0.43
+
+0.43 converts the remaining TBD performance/synchronization values into product
+acceptance criteria and implements one reproducible real-Project test command.
+
+Static geometry qualification uses the accepted float64 equirectangular
+reference mapping as the oracle for the optimized float32 final projector.
+
+Latency qualification intentionally starts only after the panoramic preview is
+ready, matching the wording of `SYS-PERF-001` and `SYS-PERF-002`.
+
+The final gate must be run on the Fedora / AMD Radeon 890M reference machine;
+container or CI timings are not accepted as reference-system performance
+evidence.

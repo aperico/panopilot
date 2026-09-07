@@ -3,7 +3,7 @@ from panopilot.session import ProjectSession
 
 def test_schema_v4_roundtrip():
     p=Project(stabilization_amount=0.72); d=p.to_dict()
-    assert d['schema_version']==8 and d['stabilization']['amount']==0.72
+    assert d['schema_version']==10 and d['stabilization']['amount']==0.72
     assert Project.from_dict(d).stabilization_amount==0.72
 
 def test_schema_v3_migrates_to_zero():

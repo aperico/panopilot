@@ -342,16 +342,21 @@ def ensure_preview_cache(
     cache_dir=None,
     rebuild=False,
     progress_callback=None,
+    cancel_callback=None,
 ):
     """
     Return a valid cached panoramic preview, preparing it when necessary.
 
-    Preparation is synchronous in 0.15.  It is intentionally kept outside the
-    Qt event loop so cache correctness can be validated before background job
-    orchestration is introduced.
+    The cache operation itself is synchronous and transaction-safe, but callers
+    may run it in a PanoPilot background job. Cooperative cancellation leaves no
+    preparing media or metadata behind.
     """
     source = Path(source)
     profile.validate()
+
+    if cancel_callback is not None and bool(cancel_callback()):
+        from .jobs import JobCancelled
+        raise JobCancelled("Preview preparation cancelled")
 
     key, video_path, metadata_path = _paths(
         source,
@@ -424,6 +429,8 @@ def ensure_preview_cache(
             with_audio=profile.with_audio,
             crf=profile.crf,
             preset=profile.preset,
+            progress_callback=progress_callback,
+            cancel_callback=cancel_callback,
         )
 
         metadata = {

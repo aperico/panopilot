@@ -1,7 +1,7 @@
 # PanoPilot — System Requirements
 
 Status: Draft  
-Baseline: SYS-0.26
+Baseline: SYS-0.28
 Scope: Iteration 1  
 Parent: `01_system_definition.md`  
 Use Cases: `02_use_cases.md`
@@ -100,8 +100,8 @@ A newly created Project shall contain an empty Project Timeline.
 
 ## SYS-MEDIA-001 — Supported OSV
 
-PanoPilot shall accept supported DJI Osmo 360 `.OSV` files as Source
-Recordings.
+PanoPilot shall accept DJI Osmo 360 `.OSV` files conforming to
+`SUPPORTED-OSV-PROFILE-001` as Source Recordings.
 
 **Verification:** Test  
 **Trace:** UC-02
@@ -1013,9 +1013,27 @@ operations.
 
 ## SUPPORTED-OSV-PROFILE-001
 
-Validated DJI Osmo 360 source configurations.
+Iteration-1 validated DJI Osmo 360 Source Recording profile:
 
-**Status:** TBD
+- file extension `.OSV`;
+- exactly two non-attached panoramic lens video streams;
+- both lens streams encoded as HEVC;
+- both lens streams 1920 × 1920 pixels;
+- both lens streams constant 100 fps, with `avg_frame_rate` and
+  `r_frame_rate` agreeing within 0.05 fps;
+- lens stream start times aligned within 10 ms;
+- positive source duration;
+- at least two usable DJI factory-calibration lens records;
+- DJI per-frame orientation metadata present;
+- installed FFmpeg successfully decodes one frame from each lens stream.
+
+Profile identifier:
+`dji-osmo360-dual-1920-hevc-100fps-v1`.
+
+Other DJI Osmo 360 recording modes may technically decode, but are not claimed
+as Iteration-1 supported until separately qualified.
+
+**Status:** Resolved
 
 
 ## OUTPUT-PROFILE-001
@@ -1030,31 +1048,48 @@ Iteration 1 output policy:
 
 ## CAMERA-EQUIVALENCE-001
 
-Maximum accepted geometric difference between preview and final rendering for
-the same Source Time and Camera State.
+For the same panorama geometry, Output Profile, and Virtual Camera state, the
+maximum seam-aware difference between the Preview reference source map and the
+optimized final-render source map shall not exceed **0.05 source-panorama
+pixel**.
 
-**Status:** TBD
+The acceptance suite evaluates 16:9 and 9:16 at both 720p and 1080p, including
+non-zero yaw, pitch, roll, and FOV changes.
+
+**Status:** Resolved
 
 
 ## CAMERA-RESPONSE-001
 
-Maximum accepted direct-manipulation response latency.
+With the panoramic preview already ready, the p95 time from a Virtual Camera
+state change to completion of an 800-pixel-long-edge conventional preview
+frame shall not exceed **100 ms** on the Fedora reference system.
 
-**Status:** TBD
+Cache preparation, source validation, and first-time application startup are
+excluded from this latency.
+
+**Status:** Resolved
 
 
 ## SCRUB-RESPONSE-001
 
-Maximum accepted timeline scrub response latency.
+With the panoramic preview already ready, the p95 time from a random Clip
+Source-Time seek request through cached-frame decode and completion of the
+800-pixel-long-edge conventional preview frame shall not exceed **250 ms** on
+the Fedora reference system.
 
-**Status:** TBD
+**Status:** Resolved
 
 
 ## PREVIEW-AV-SYNC-001
 
-Maximum preview audio/video synchronization error.
+Preview audio/video synchronization error shall not exceed **100 ms**.
 
-**Status:** TBD
+PanoPilot uses the Qt Multimedia audio position as the playback clock when
+audio playback is available. Cached preview stream start/end alignment is also
+measured by the Iteration-1 acceptance suite.
+
+**Status:** Resolved
 
 
 ## EXPORT-AV-SYNC-001
@@ -2191,3 +2226,15 @@ traceability matrix with an implementation status and verification mapping.
 
 **Priority:** MUST  
 **Verification:** Test
+
+
+---
+
+# 42. Background Work Closure — PanoPilot 0.42
+
+PanoPilot 0.42 closes the previously open background-work requirements using a
+bounded worker pool, per-Clip preview jobs, GUI-thread polling of immutable job
+state, and cooperative cancellation for preview preparation and final export.
+
+`SYS-PREV-004`, `SYS-PERF-003`, and `SYS-PERF-004` are verified by automated
+background-job isolation and cancellation tests.

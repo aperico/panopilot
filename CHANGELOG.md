@@ -1,4 +1,262 @@
+## 0.54.0
+
+- Added 1440p and 4K final output.
+- Improved H.264 quality presets and added Master quality.
+- Added explicit H.264 High Profile and Rec.709 metadata.
+
+## 0.53.1
+
+- Converted bundled branding SVGs to path-only drawable geometry for portable rendering.
+
+## 0.53.0
+
+- Added bundled SVG logo and app icon; surfaced the logo above the Project title on Home.
+- Applied the app icon to the Project workspace and standalone Clip Editor windows.
+
 # Changelog
+
+
+## 0.52.2
+
+- Hides Clip-menu commands that require a selected Clip when no Clip is selected; Arrange remains available as a Project-level command.
+- Makes Clip-menu visibility react immediately to Clip-browser selection changes and avoids stale-current-index selection state.
+- Reworks the bottom status-bar priority so Project/context text can shrink while export progress and Abort remain fully visible.
+- Reduces export progress width, reserves a compact fixed-width Abort action, and removes the redundant status-bar size grip.
+- Renames the export/background-work action from **Cancel** to **Abort** and shortens background labels while retaining detailed tooltips.
+
+
+## 0.52.1
+
+- Fixed Clip Editor startup regression where timeline navigation signals were connected before `timeline_scroll` and zoom controls were constructed.
+- Added explicit dark-theme fallback for the embedded editor host and all Clip Editor child containers.
+- Added explicit QMessageBox dark styling to prevent white-background/white-text failure dialogs under light system palettes.
+- Added regression tests for editor initialization order and contrast fallback.
+
+## 0.52.0
+
+- Rebuilds Project Home around a bottom, wrapping, vertically scrollable Clip browser instead of a top strip.
+- Removes the Home `Project` heading, `Edit Selected Clip`, and Project Settings buttons; enlarges the editable Project title field.
+- Makes **Arrange Clips** the first Project-level Home action, followed by Final Export and Open Project.
+- Adds `+ Add Clips…` inside the Clip browser and keeps multi-select import through the native file dialog.
+- Adds per-Clip context actions: **Edit**, **View Clip Info**, and **Remove From Project**; double-click still opens the exact clicked Clip.
+- Shows source-file length, active Clip length when trimmed, Camera Position count, and preview state on Clip cards; filename and absolute source path are available on hover.
+- Fixes the apparent no-op Clip editing flow by remembering an edit request while preview preparation runs and opening the Clip Editor automatically when ready.
+- Keeps Clip Editor modes strictly **Reframe / Trim**; Arrange is Project-level only.
+- Adds **File > Open Project…** (`Ctrl+O`) and switches the active `ProjectSession`/path in-place, retaining a single open project at a time.
+- `Save Project As…` continues to allow arbitrary destinations and now all persisted Clip source references are guaranteed absolute paths.
+- Updates the CLI project-edit loop to follow the Project path returned by the GUI after Open/Save As rather than reverting to the original `--project` argument.
+- Adds vertical-scroll theming and larger Project-title styling.
+- 463 automated tests pass.
+
+## 0.51.1
+
+- Restores robust Clip Editor entry from Project Home: double-click now opens the exact clicked Clip ID instead of depending on QListView current-selection timing.
+- Adds an explicit **Edit Selected Clip** button on Project Home.
+- Simplifies Arrange to Project-level sequencing only: the Arrange workspace no longer exposes Reframe/Trim/Arrange mode buttons; `← Project` is its only workflow navigation action.
+- Constrains the Arrange track to 100 px and each duration-proportional Clip card to 84 px so sequencing no longer consumes the full workspace height.
+- Uses one centered, aspect-preserving 96×54 representative thumbnail per Arrange Clip instead of repeated thumbnail slices.
+- Adds **Export Final Video…** on Project Home and a dedicated top-level **Export** menu while retaining the File-menu entry and `Ctrl+E`.
+- Keeps Arrange zoom, Fit, horizontal scroll, pan, duration-proportional widths, and drag/drop reorder semantics unchanged.
+- Adds regression coverage for Arrange scope/height/thumbnails, explicit Clip editing, clicked-Clip routing, and export discoverability.
+- 456 automated tests pass.
+
+
+## 0.51.0
+
+- Fixes Clip visual playback stopping at/near the final Camera Position by making the editor monotonic clock authoritative for visual Source Time while Qt Multimedia follows for audio.
+- Preserves View Path hold-last semantics: the final Camera Position remains active while playback continues to Clip Out.
+- Adds a shared GUI-independent `TimelineViewport` for cursor-anchored zoom, horizontal pan, Fit, scrollbar mapping, and keep-playhead-visible autoscroll.
+- Adds mouse-wheel timeline zoom, Shift+wheel/native-horizontal panning, a visible horizontal scrollbar when zoomed, and `- / Fit / +` controls.
+- Regenerates timeline thumbnails from the currently visible cached-preview interval so thumbnail temporal density adapts naturally to zoom.
+- Adds persisted Project names in schema v10 and exposes Project name plus Project Settings on the Home screen.
+- Adds **File > Save Project As…** (`Ctrl+Shift+S`) and switches the current single-project session to the new path after saving.
+- Adds a third **Arrange** workflow beside Reframe and Trim.
+- Adds a duration-proportional, drag/drop Project Clip timeline with no playback monitor and shared zoom/pan/Fit navigation.
+- Keeps Arrange presentation state outside authoritative Project order; reorders remain `ProjectSession` transactions.
+- Adds regression coverage for timeline navigation, project metadata/Save As architecture, Arrange presentation, and playback beyond the final Camera Position.
+- 451 automated tests pass.
+
+
+## 0.50.1
+
+- Fixed Camera Position diamond dragging/manual timeline movement failing with `source_duration_value not defined`.
+- Camera Position move validation now receives the editor's authoritative `source_duration`.
+- Added regression coverage for the Camera Position move callback wiring and timeline drag path.
+- No Camera Position, View Path, reframing, rendering, trim, or export semantics changed.
+
+## 0.50.0
+
+- Makes Camera Position diamonds the edit anchors for Reframe segments: view changes update the closest saved Camera Position to the left.
+- Clicking a diamond and then dragging/zooming/fine-adjusting automatically updates and saves that selected Camera Position.
+- Keeps changes before the first Camera Position preview-only; `◆ Add at Playhead` remains the explicit keyframe-creation action.
+- Batches mouse drag, wheel/trackpad, and auto-repeat fine-control input into logical edit transactions instead of saving every transient input event.
+- Highlights the active nearest-left Camera Position diamond.
+- Removes the Fine Camera disclosure toggle; precise camera controls remain visible for the complete Reframe workflow and disappear with the entire Camera rail in Trim.
+- Replaces fixed six-image stretched timeline thumbnails with an adaptive sampled-frame filmstrip of up to 24 aspect-preserving tiles.
+- Uses center-cropped `KeepAspectRatioByExpanding` thumbnail rendering rather than non-uniform `scaledContents`.
+- Fixes initial preview sizing by ignoring pixmap size hints in both dimensions and re-fitting after the first Qt show/layout event.
+- Normalizes editor margins, nested Reframe-panel borders, control spacing, and filmstrip styling.
+- Adds behavioral and presentation regression coverage; 431 tests pass.
+
+## 0.49.0
+
+- Reorganizes the Clip Editor around a DJI Mimo-inspired media-first hierarchy while preserving PanoPilot's desktop conventions.
+- Moves Play/Pause directly beside the timeline so transport and seek form one editing surface.
+- Adds an explicit `← Project` button inside embedded Clip editing to close the editor and return to the Project organizer.
+- Keeps the compact Reframe/Trim mode switch at the top of the editor and removes the permanent explanatory mode-text row.
+- Moves Camera Position and Fine Camera controls into a narrow right-side rail beside the preview in Reframe mode.
+- Hides that rail completely in Trim mode so the preview immediately expands to the reclaimed width.
+- Converts Camera Position timeline markers from vertical lines to compact diamond/keyframe icons.
+- Makes Camera Position diamonds addressable: click to seek directly to that saved time; drag to move the saved position in Source Time.
+- Uses a thin cached-media timeline filmstrip in both Reframe and Trim for visual navigation context.
+- Clarifies the Camera Position action as `◆ Add / Update` under a `Camera Positions` heading, with detailed tooltip semantics.
+- Keeps rendering, stabilization, trim, View Path, Camera math, preview-cache, and export semantics unchanged.
+- Extends the regression suite to 426 passing tests.
+
+## 0.48.0
+
+- Replaces the remaining button-heavy Project chrome with a native classic Qt
+  menu bar.
+- Adds `File`, `Edit`, `Clip`, `View`, and `Settings` menus with standard
+  shortcuts for Open/Add Media, Save, Undo, Redo, Close, and focused commands
+  for Export, Clip editing/reordering, Project Preview, Focus Viewer, and Project
+  Settings.
+- Converts the Project shell to `QMainWindow` so menu and status surfaces are
+  native desktop application regions rather than simulated panels.
+- Moves Project duration/output/stabilization/save-state information into a
+  fixed bottom status bar.
+- Moves background preview/import/export state, export progress, and Cancel into
+  the same status bar.
+- Removes the permanent top action bar, Project Settings panel, and background
+  work panel from the central workspace. Project Settings now opens as a
+  modeless dialog from the Settings menu.
+- Automatically hides the Clip strip while a Clip Editor is active and restores
+  it when editing closes, preserving an explicit `View > Show Clip Strip`
+  organizer control.
+- Makes the reframed preview surface fill the complete media container; output
+  aspect ratio is preserved by letterboxing inside that full-size dark surface.
+- Removes embedded Clip Editor Save/Undo/Redo buttons from the transport row;
+  those commands are routed through the parent Edit/File menus.
+- Preserves all rendering, stabilization, trim, Camera Position, View Path,
+  preview-cache, and export semantics.
+- Extends the regression suite to 420 passing tests.
+
+## 0.47.0
+
+- Fixes dark-theme contrast by explicitly styling child labels, buttons, tool
+  buttons, combo boxes, menus, progress bars, and sliders instead of relying on
+  the host Qt/GNOME palette.
+- Opens the Project workspace and standalone Clip Editor maximized by default
+  while keeping both windows restorable and resizable.
+- Removes preview-pixmap fixed sizing so the reframed image scales with the
+  available canvas rather than forcing the window beyond the screen.
+- Splits Clip editing into explicit **Reframe** and **Trim** modes.
+- Hides trim actions and trim timeline annotations while reframing.
+- Hides Camera Position actions/markers while trimming.
+- Renames the visible `Set Camera` action to **Save Camera Position** and explains
+  that it stores direction/roll/zoom at the current playhead time for View Path
+  interpolation.
+- Adds compact Clip thumbnails generated from the existing disposable preview
+  cache.
+- Adds a lazy six-frame source thumbnail rail to Trim mode only.
+- Keeps thumbnail artifacts disposable and outside authoritative Project state.
+- Preserves all rendering, stabilization, View Path, trim, and export semantics.
+- Extends the headless regression suite to 413 passing tests.
+
+## 0.46.0
+
+- Replaces the permanent horizontal Project/Editor splitter with a focus-first
+  single-window workspace.
+- Keeps Project Clips immediately accessible in a compact horizontal strip.
+- Introduces a GUI-independent Clip-strip presentation model with a lazy Qt
+  `QAbstractListModel` adapter.
+- Adds `workspace_presenter.py` for testable Project-workspace view-state
+  composition.
+- Centralizes desktop styling in `desktop_theme.py`.
+- Collapses Project/export settings by default.
+- Collapses fine yaw/pitch/roll/easing controls by default.
+- Adds Focus mode to maximize the reframed viewer.
+- Removes the nested Qt event loop from embedded Clip editing; standalone
+  `explore` behavior remains blocking and unchanged.
+- Preserves all rendering, stabilization, trim, View Path, and export semantics.
+- Extends the regression suite with presentation-model and 0.46 workspace
+  architecture checks.
+
+## 0.45.0
+
+- Starts a separate Iteration-2 requirements baseline; Iteration 1 remains
+  frozen at 208/208 PASS.
+- Adds final-output FPS selections: Auto, 24, 25, 30, 50, and 60 fps.
+- New Projects default to Auto; the current qualified 100 fps DJI profile
+  resolves Auto to 60 fps.
+- Automatic selection is capped at 60 fps.
+- Pre-schema-v9 Projects migrate to explicit 30 fps to preserve their previous
+  final-export behavior.
+- Project schema v9 persists `output_frame.fps`.
+- Adds Organizer FPS selector and Auto/recommended explanation.
+- Adds `project-export --fps auto|24|25|30|50|60`.
+- Export summary and suggested file name reflect the resolved FPS.
+- Keeps the Project Organizer alive while Clip editing is open and reloads the
+  Project into that workspace when editing closes.
+- Adds Iteration-2 requirements and traceability documents.
+- Embeds the proven Clip Editor in the right-hand Project-workspace pane while the Clip sequence remains visible.
+
+## 0.44.0
+
+- Accepts the successful PanoPilot 0.43 reference-system field report.
+- Formally closes all 208 Iteration-1 normative requirements.
+- RTM status is now 208 PASS / 0 PARTIAL / 0 OPEN.
+- Records measured Camera-equivalence error of 0.043536 source pixel.
+- Records worst Preview A/V timing error of 35.000 ms.
+- Records worst ready-preview Camera-response p95 of 12.769 ms.
+- Records worst random-scrub p95 of 101.393 ms.
+- Records 3/3 reference Source Recordings as conforming to the supported DJI
+  OSV profile.
+- Adds `panopilot acceptance-certify REPORT`.
+- Adds sanitized machine-readable acceptance certificate generation.
+- Adds `docs/08_iteration1_verification_report.md`.
+- Packages `docs/iteration1_acceptance_certificate.json` without source paths,
+  fingerprints, or cache paths.
+- Freezes Iteration-1 requirements as the accepted product baseline.
+
+## 0.43.0
+
+- Resolves the Iteration-1 supported DJI OSV profile.
+- Import now claims support only for the empirically qualified dual
+  1920×1920 HEVC 100 fps DJI Osmo 360 profile.
+- Resolves preview/final Camera geometry tolerance to 0.05 source-panorama
+  pixel.
+- Resolves ready-preview Camera response target to p95 <=100 ms.
+- Resolves random scrub response target to p95 <=250 ms.
+- Resolves Preview A/V synchronization target to <=100 ms.
+- Adds `panopilot acceptance-run PROJECT`.
+- Adds machine-readable `acceptance-043.json` field-verification reports.
+- Adds 720p/1080p landscape/portrait Camera-map equivalence measurement.
+- Adds real preview-cache Camera response and random seek benchmarks.
+- Adds preview A/V stream start/end alignment measurement.
+- Adds Fedora / Radeon 890M reference-system qualification.
+- Uses Qt Multimedia audio position as the Project Preview playback clock when
+  available.
+- Adds `docs/07_quantitative_acceptance.md`.
+- Static RTM state becomes 205 PASS / 3 PARTIAL / 0 OPEN pending one reference
+  system acceptance run.
+
+## 0.42.0
+
+- Adds GUI-framework-agnostic background job orchestration with bounded worker concurrency.
+- Adds cooperative cancellation tokens and terminal job states.
+- Moves Project Organizer preview preparation to independent per-Clip background jobs.
+- Displays PREPARING / READY / FAILED / CANCELLED preview state on Clip rows.
+- Keeps ready Clips available when another preview is preparing or fails.
+- Moves Add OSV source validation off the Qt GUI thread.
+- Runs final Project export in the background from the saved Project snapshot.
+- Keeps Organizer edits available while export runs.
+- Adds inline export progress and Cancel Export.
+- Adds cooperative frame-loop export cancellation and FFmpeg process termination.
+- Preserves transactional final-output replacement on cancellation.
+- Adds cooperative preview-cache cancellation with temporary-file cleanup.
+- Closes SYS-PREV-004, SYS-PERF-003, and SYS-PERF-004.
+- Updates requirements traceability through PanoPilot 0.42.
 
 ## 0.41.0
 

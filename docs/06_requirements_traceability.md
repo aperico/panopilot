@@ -1,6 +1,6 @@
 # PanoPilot Requirements Traceability
 
-Baseline: RTM-0.1 / PanoPilot 0.41.0
+Baseline: RTM-0.4 / PanoPilot 0.44.0
 
 Status semantics: **PASS** = implemented with mapped verification; **PARTIAL** = behavior exists but a quantitative/validation gate remains; **OPEN** = implementation closure is scheduled.
 
@@ -12,7 +12,7 @@ Status semantics: **PASS** = implemented with mapped verification; **PARTIAL** =
 | SYS-APP-004 | Offline Primary Workflow | PASS | `cli.py / project_editor.py` | `tests/test_014_cli.py` |
 | SYS-PROJ-001 | New Project | PASS | `project.py / project_editor.py` | `tests/test_project.py` |
 | SYS-PROJ-002 | Empty Initial Timeline | PASS | `project.py / project_editor.py` | `tests/test_project.py` |
-| SYS-MEDIA-001 | Supported OSV | PARTIAL | `source_validation.py / media_identity.py / source.py / dji.py` | `tests/test_041_source_integrity.py` |
+| SYS-MEDIA-001 | Supported OSV | PASS | `source_validation.py / acceptance.py / source.py / dji.py` | `tests/test_043_supported_osv_profile.py / tests/test_041_source_integrity.py` |
 | SYS-MEDIA-002 | Multiple Source Selection | PASS | `source_validation.py / media_identity.py / source.py / dji.py` | `tests/test_041_source_integrity.py` |
 | SYS-MEDIA-003 | No Manual Conversion | PASS | `source_validation.py / media_identity.py / source.py / dji.py` | `tests/test_041_source_integrity.py` |
 | SYS-MEDIA-004 | Unsupported Source Notification | PASS | `source_validation.py / media_identity.py / source.py / dji.py` | `tests/test_041_source_integrity.py` |
@@ -39,7 +39,7 @@ Status semantics: **PASS** = implemented with mapped verification; **PARTIAL** =
 | SYS-PREV-001 | Navigable Panoramic Preview | PASS | `cache.py / preview.py / loading.py` | `tests/test_cache.py` |
 | SYS-PREV-002 | Automatic Preview Preparation | PASS | `cache.py / preview.py / loading.py` | `tests/test_cache.py` |
 | SYS-PREV-003 | Preparation State | PASS | `cache.py / preview.py / loading.py` | `tests/test_cache.py` |
-| SYS-PREV-004 | Per-Clip Preparation Isolation | OPEN | `cache.py / preview.py / loading.py` | `tests/test_cache.py` |
+| SYS-PREV-004 | Per-Clip Preparation Isolation | PASS | `jobs.py / cache.py / preview.py / project_editor.py` | `tests/test_042_background_jobs.py / tests/test_042_work_isolation_architecture.py` |
 | SYS-OUT-001 | 16:9 | PASS | `output_profile.py / project.py / project_editor.py` | `tests/test_037_output_options.py` |
 | SYS-OUT-002 | 9:16 | PASS | `output_profile.py / project.py / project_editor.py` | `tests/test_037_output_options.py` |
 | SYS-OUT-003 | Project-Wide Profile | PASS | `output_profile.py / project.py / project_editor.py` | `tests/test_037_output_options.py` |
@@ -54,7 +54,7 @@ Status semantics: **PASS** = implemented with mapped verification; **PARTIAL** =
 | SYS-CAM-006 | Coordinate-Free Primary Workflow | PASS | `virtual_camera.py / explore.py` | `tests/test_virtual_camera.py` |
 | SYS-CAM-007 | Reset View | PASS | `virtual_camera.py / explore.py` | `tests/test_virtual_camera.py` |
 | SYS-CAM-008 | Canonical Camera Semantics | PASS | `virtual_camera.py / explore.py` | `tests/test_virtual_camera.py` |
-| SYS-CAM-009 | Preview/Render Camera Equivalence | PARTIAL | `virtual_camera.py / explore.py` | `tests/test_virtual_camera.py` |
+| SYS-CAM-009 | Preview/Render Camera Equivalence | PASS | `virtual_camera.py / acceptance.py / explore.py` | `tests/test_043_acceptance_metrics.py / tests/test_virtual_camera.py` |
 | SYS-EDIT-001 | Non-Committing Exploration | PASS | `explore.py / session.py` | `tests/test_explore_commit.py` |
 | SYS-EDIT-002 | Explicit Commit | PASS | `explore.py / session.py` | `tests/test_explore_commit.py` |
 | SYS-EDIT-003 | Reset Does Not Modify View Path | PASS | `explore.py / session.py` | `tests/test_explore_commit.py` |
@@ -80,7 +80,7 @@ Status semantics: **PASS** = implemented with mapped verification; **PARTIAL** =
 | SYS-PATH-006 | Reorder Independence | PASS | `view_path.py / project.py` | `tests/test_view_path.py` |
 | SYS-AUDIO-001 | Clip Preview Audio | PASS | `cache.py / project_player.py / project_export.py` | `tests/test_playback.py` |
 | SYS-AUDIO-002 | Project Preview Audio | PASS | `cache.py / project_player.py / project_export.py` | `tests/test_playback.py` |
-| SYS-AUDIO-003 | Preview AV Sync | PARTIAL | `cache.py / project_player.py / project_export.py` | `tests/test_playback.py` |
+| SYS-AUDIO-003 | Preview AV Sync | PASS | `cache.py / project_player.py / acceptance.py` | `tests/test_043_preview_av_sync.py / tests/test_043_acceptance_metrics.py`; reference evidence: `docs/iteration1_acceptance_certificate.json` |
 | SYS-HIST-001 | Undo | PASS | `session.py` | `tests/test_session.py` |
 | SYS-HIST-002 | Redo | PASS | `session.py` | `tests/test_session.py` |
 | SYS-HIST-003 | Gesture Transaction | PASS | `session.py` | `tests/test_session.py` |
@@ -108,10 +108,10 @@ Status semantics: **PASS** = implemented with mapped verification; **PARTIAL** =
 | SYS-EXP-009 | Export AV Sync | PASS | `project_export.py / export_ui.py` | `tests/test_038_export_progress.py` |
 | SYS-EXP-010 | Failed Export Status | PASS | `project_export.py / export_ui.py` | `tests/test_038_export_progress.py` |
 | SYS-EXP-011 | Export Source Integrity | PASS | `project_export.py / export_ui.py` | `tests/test_038_export_progress.py` |
-| SYS-PERF-001 | Camera Response | PARTIAL | `performance.py / project_export.py / projection_prefetch.py` | `tests/test_022_performance_profiler.py` |
-| SYS-PERF-002 | Scrub Response | PARTIAL | `performance.py / project_export.py / projection_prefetch.py` | `tests/test_022_performance_profiler.py` |
-| SYS-PERF-003 | Ready-Clip Isolation | OPEN | `performance.py / project_export.py / projection_prefetch.py` | `tests/test_022_performance_profiler.py` |
-| SYS-PERF-004 | Long-Running Work | OPEN | `performance.py / project_export.py / projection_prefetch.py` | `tests/test_022_performance_profiler.py` |
+| SYS-PERF-001 | Camera Response | PASS | `acceptance.py / cache.py / explore.py` | `tests/test_043_acceptance_metrics.py`; reference evidence: `docs/iteration1_acceptance_certificate.json` |
+| SYS-PERF-002 | Scrub Response | PASS | `acceptance.py / cache.py / explore.py` | `tests/test_043_acceptance_metrics.py`; reference evidence: `docs/iteration1_acceptance_certificate.json` |
+| SYS-PERF-003 | Ready-Clip Isolation | PASS | `jobs.py / project_editor.py / cache.py` | `tests/test_042_background_jobs.py / tests/test_042_work_isolation_architecture.py` |
+| SYS-PERF-004 | Long-Running Work | PASS | `jobs.py / project_editor.py / project_export.py` | `tests/test_042_background_jobs.py / tests/test_042_work_isolation_architecture.py` |
 | SYS-POS-008 | Durable Set Camera | PASS | `project.py / session.py / explore.py` | `tests/test_041_camera_position_move.py` |
 | SYS-PATH-007 | Configurable Easing Preset | PASS | `view_path.py / project.py` | `tests/test_view_path.py` |
 | SYS-PATH-008 | Configurable Easing Amount | PASS | `view_path.py / project.py` | `tests/test_view_path.py` |
@@ -215,8 +215,48 @@ Status semantics: **PASS** = implemented with mapped verification; **PARTIAL** =
 | SYS-REQ-001 | Unique Requirement Identity | PASS | `docs/03_system_requirements.md / docs/06_requirements_traceability.md` | `tests/test_041_requirements_lint.py` |
 | SYS-REQ-002 | Requirement Traceability Coverage | PASS | `docs/03_system_requirements.md / docs/06_requirements_traceability.md` | `tests/test_041_requirements_lint.py` |
 
-## Open closure gates
+## Iteration-1 closure
 
-- **0.42 Background work isolation:** SYS-PREV-004, SYS-PERF-003, SYS-PERF-004.
-- **0.43 Quantitative acceptance/profile closure:** SYS-MEDIA-001, SYS-PERF-001, SYS-PERF-002, SYS-CAM-009, SYS-AUDIO-003.
-- `SOURCE-IDENTITY-001` is resolved in 0.41 as `sampled-sha256-v1`.
+The PanoPilot 0.43 quantitative acceptance run passed on the designated Fedora
+/ AMD Radeon 890M reference system.
+
+The final field evidence closes:
+
+- `SYS-AUDIO-003` — worst measured cached-preview A/V timing error:
+  **35.000 ms**, limit **100 ms**;
+- `SYS-PERF-001` — worst measured ready-preview Camera-response p95:
+  **12.769 ms**, limit **100 ms**;
+- `SYS-PERF-002` — worst measured random-scrub p95:
+  **101.393 ms**, limit **250 ms**.
+
+The previously static gates also remained PASS:
+
+- `SYS-MEDIA-001` — all three reference Source Recordings conformed to the
+  supported DJI OSV profile;
+- `SYS-CAM-009` — maximum Preview/final source-map difference:
+  **0.043536 source pixel**, limit **0.05**.
+
+Final Iteration-1 RTM state: **208 PASS / 0 PARTIAL / 0 OPEN**.
+
+```text
+208 normative requirements
+
+PASS       208
+PARTIAL      0
+OPEN         0
+```
+
+Sanitized machine-readable evidence:
+
+```text
+docs/iteration1_acceptance_certificate.json
+```
+
+Human-readable verification report:
+
+```text
+docs/08_iteration1_verification_report.md
+```
+
+The Iteration-1 requirements baseline is closed. Subsequent product work shall
+be introduced through a new requirements baseline.

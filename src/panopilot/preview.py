@@ -46,6 +46,7 @@ from .dji import (
     orientation_from_samples,
 )
 from .factory import FactoryCalibratedMapper
+from .jobs import JobCancelled
 from .source import (
     lens_streams,
     preview_exposure_times,
@@ -183,9 +184,17 @@ def render_preview(
     with_audio=True,
     crf=20,
     preset="veryfast",
+    progress_callback=None,
+    cancel_callback=None,
 ):
     source = Path(source)
     output = Path(output)
+
+    def check_cancelled():
+        if cancel_callback is not None and bool(cancel_callback()):
+            raise JobCancelled("Preview preparation cancelled")
+
+    check_cancelled()
 
     if not source.is_file():
         raise FileNotFoundError(f"Source does not exist: {source}")
@@ -306,6 +315,8 @@ def render_preview(
             )
 
 
+    check_cancelled()
+
     decoder = subprocess.Popen(
         _decoder_command(
             source,
@@ -347,8 +358,11 @@ def render_preview(
     started = time.perf_counter()
     tilts = []
 
+    cancelled = False
+
     try:
         while True:
+            check_cancelled()
             raw = _read_exact(decoder.stdout, frame_bytes)
 
             if raw is None:
@@ -390,6 +404,26 @@ def render_preview(
 
             frame_index += 1
 
+            if progress_callback is not None and (
+                frame_index == 1
+                or frame_index % 5 == 0
+                or frame_index >= expected_frames
+            ):
+                progress_callback(
+                    {
+                        "stage": "preview-render",
+                        "message": (
+                            f"Preparing panoramic preview — "
+                            f"{min(frame_index, expected_frames)}/{expected_frames} frames"
+                        ),
+                        "frame": int(frame_index),
+                        "total_frames": int(expected_frames),
+                        "percent": float(
+                            min(100.0, frame_index * 100.0 / expected_frames)
+                        ),
+                    }
+                )
+
             if frame_index % 10 == 0:
                 elapsed = time.perf_counter() - started
                 throughput = frame_index / elapsed if elapsed else 0.0
@@ -402,6 +436,16 @@ def render_preview(
                 )
 
     finally:
+        cancelled = bool(
+            cancel_callback is not None
+            and cancel_callback()
+        )
+
+        if cancelled:
+            for process in (decoder, encoder):
+                if process.poll() is None:
+                    process.terminate()
+
         if decoder.stdout:
             decoder.stdout.close()
 
@@ -428,6 +472,8 @@ def render_preview(
 
     elapsed = time.perf_counter() - started
     throughput = frame_index / elapsed if elapsed else 0.0
+
+    check_cancelled()
 
     if decoder.returncode != 0:
         raise RuntimeError(

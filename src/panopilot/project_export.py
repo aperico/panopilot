@@ -26,6 +26,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
+
+from .jobs import JobCancelled
 import glob
 import math
 import shutil
@@ -230,6 +232,11 @@ def _emit(progress_callback, stage, message, **extra):
         }
     )
 
+
+
+def _check_cancelled(cancel_callback, message="Export cancelled"):
+    if cancel_callback is not None and bool(cancel_callback()):
+        raise JobCancelled(str(message))
 
 def _read_exact(pipe, byte_count):
     chunks = []
@@ -517,7 +524,11 @@ def _video_encoder_command(
         "-c:v", "libx264",
         "-preset", str(preset),
         "-crf", str(int(crf)),
+        "-profile:v", "high",
         "-pix_fmt", "yuv420p",
+        "-color_primaries", "bt709",
+        "-color_trc", "bt709",
+        "-colorspace", "bt709",
         "-an",
         "-movflags", "+faststart",
         str(output),
@@ -1406,7 +1417,9 @@ def _render_video_stream(
     render_pass_label="Final render",
     visual_camera_offsets=None,
     progress_callback=None,
+    cancel_callback=None,
 ):
+    _check_cancelled(cancel_callback)
     encoder = subprocess.Popen(
         _video_encoder_command(
             output,
@@ -2117,6 +2130,7 @@ def _render_video_stream(
                     map_prefetcher.submit(first_camera, first_rotation)
                     try:
                         for local_index in range(group.frame_count):
+                            _check_cancelled(cancel_callback)
                             with video_profiler.measure("decoder_read_wait"):
                                 raw = _read_exact(decoder_process.stdout, frame_bytes)
                             if raw is None:
@@ -2179,6 +2193,12 @@ def _render_video_stream(
                                     render_pass_label=str(render_pass_label),
                                 )
                     finally:
+                        if (
+                            cancel_callback is not None
+                            and cancel_callback()
+                            and decoder_process.poll() is None
+                        ):
+                            decoder_process.terminate()
                         if decoder_process.stdout:
                             decoder_process.stdout.close()
                         with video_profiler.measure("decoder_finalize"):
@@ -2208,6 +2228,7 @@ def _render_video_stream(
                     )
                     try:
                         for local_index in range(group.frame_count):
+                            _check_cancelled(cancel_callback)
                             with video_profiler.measure("decoder_read_wait"):
                                 raw=_read_exact(decoder_process.stdout,frame_bytes)
                             if raw is None:
@@ -2276,6 +2297,12 @@ def _render_video_stream(
                                     render_pass_label=str(render_pass_label),
                                 )
                     finally:
+                        if (
+                            cancel_callback is not None
+                            and cancel_callback()
+                            and decoder_process.poll() is None
+                        ):
+                            decoder_process.terminate()
                         if decoder_process.stdout:
                             decoder_process.stdout.close()
                         with video_profiler.measure("decoder_finalize"):
@@ -2324,6 +2351,12 @@ def _render_video_stream(
             )
 
     finally:
+        if (
+            cancel_callback is not None
+            and cancel_callback()
+            and encoder.poll() is None
+        ):
+            encoder.terminate()
         if encoder.stdin:
             try:
                 encoder.stdin.close()
@@ -2342,6 +2375,8 @@ def _render_video_stream(
                 else ""
             )
             encoder.wait()
+
+    _check_cancelled(cancel_callback)
 
     if encoder.returncode != 0:
         raise RuntimeError(
@@ -2855,6 +2890,7 @@ def export_project_video(
     imu_offset_ms=0.0,
     output_resolution=None,
     output_quality=None,
+    output_fps=None,
     crf=None,
     preset=None,
     decoder="auto",
@@ -2874,6 +2910,7 @@ def export_project_video(
     rolling_shutter_direction="top-to-bottom",
     rolling_shutter_analysis_width=640,
     progress_callback=None,
+    cancel_callback=None,
 ):
     project_path = Path(
         project_path
@@ -2881,6 +2918,8 @@ def export_project_video(
     output = Path(
         output
     )
+
+    _check_cancelled(cancel_callback)
 
     if not project_path.is_file():
         raise FileNotFoundError(
@@ -2934,6 +2973,9 @@ def export_project_video(
         project,
         resolution=(
             output_resolution
+        ),
+        fps=(
+            output_fps
         ),
     )
     quality_profile = export_quality_for_project(
@@ -3072,6 +3114,7 @@ def export_project_video(
         project.clips,
         start=1,
     ):
+        _check_cancelled(cancel_callback)
         source = Path(
             clip.source
         )
@@ -3258,6 +3301,9 @@ def export_project_video(
                         progress_callback=(
                             progress_callback
                         ),
+                        cancel_callback=(
+                            cancel_callback
+                        ),
                     )
                 )
 
@@ -3280,6 +3326,8 @@ def export_project_video(
                     "clip_id"
                 )
             }
+
+            _check_cancelled(cancel_callback)
 
             visual_summary = {
                 "enabled": False,
@@ -3418,6 +3466,9 @@ def export_project_video(
                                     ),
                                     progress_callback=(
                                         progress_callback
+                                    ),
+                                    cancel_callback=(
+                                        cancel_callback
                                     ),
                                 )
                             )
@@ -3623,6 +3674,8 @@ def export_project_video(
                     video_only,
                 )
 
+            _check_cancelled(cancel_callback)
+
             with overall_profiler.measure(
                 "audio_assembly"
             ):
@@ -3640,6 +3693,8 @@ def export_project_video(
                         ),
                     )
                 )
+
+            _check_cancelled(cancel_callback)
 
             _emit(
                 progress_callback,
@@ -3661,6 +3716,8 @@ def export_project_video(
                     ),
                     output_preparing,
                 )
+
+            _check_cancelled(cancel_callback)
 
             _emit(
                 progress_callback,
@@ -3688,6 +3745,8 @@ def export_project_video(
                         ),
                     )
                 )
+
+        _check_cancelled(cancel_callback)
 
         output_preparing.replace(
             output

@@ -17,7 +17,9 @@ def test_project_organizer_exposes_preview_action():
         project_editor_module
     )
 
-    assert '"Preview Project"' in source
+    assert 'self.preview_action = QAction("&Preview Project", self)' in source
+    assert 'self.preview_action.triggered.connect(self._preview_project)' in source
+    assert 'view_menu.addAction(self.preview_action)' in source
     assert 'state["action"] = "preview"' in source
 
 

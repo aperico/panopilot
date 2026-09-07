@@ -260,6 +260,26 @@ class ProjectSession:
             mutate,
         )
 
+    def set_output_fps(self, fps):
+        def mutate(project):
+            previous = str(
+                project.output_fps
+            )
+            current = project.set_output_fps(
+                fps
+            )
+            return {
+                "previous_fps": previous,
+                "fps": current[
+                    "fps"
+                ],
+            }
+
+        return self.transact(
+            "Output frame rate",
+            mutate,
+        )
+
     def set_output_quality(self, quality):
         def mutate(project):
             previous = str(
@@ -513,6 +533,19 @@ class ProjectSession:
             "Delete Camera Position",
             mutate,
         )
+
+    def set_project_name(self, name):
+        value = str(name)
+
+        def mutate(project):
+            previous = project.name
+            project.set_name(value)
+            return {
+                "previous_name": previous,
+                "name": project.name,
+            }
+
+        return self.transact("Rename Project", mutate)
 
     def set_clip_trim_in(
         self,

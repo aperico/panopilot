@@ -21,7 +21,7 @@ def test_touching_same_content_does_not_change_authoritative_identity(tmp_path):
 def test_project_schema_v8_persists_expected_identity(tmp_path):
     source=tmp_path/'source.OSV'; source.write_bytes(b'camera'*1000)
     project=Project(); project.add_clip(source); path=tmp_path/'project.json'; save_project(project,path,create_backup=False)
-    data=json.loads(path.read_text()); assert data['schema_version']==8
+    data=json.loads(path.read_text()); assert data['schema_version']==10
     assert data['clips'][0]['source_identity']['algorithm']=='sampled-sha256-v1'
     assert_project_sources(load_project(path))
 

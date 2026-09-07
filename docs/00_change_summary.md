@@ -1,20 +1,26 @@
 # PanoPilot — Documentation Change Summary
 
 Status: Updated  
-Release alignment: PanoPilot 0.41.0
-Date: 2026-09-06
+Release alignment: PanoPilot 0.48.0
+Date: 2026-09-07
 
 ## Documents
 
-- `01_system_definition.md` → SD-0.6
-- `02_use_cases.md` → UC-0.5
-- `03_system_requirements.md` → SYS-0.8
-- `04_functional_architecture.md` → FA-0.3
-- `05_technical_spikes.md` → TS-0.2
+- `01_system_definition.md` → SD-0.26
+- `02_use_cases.md` → UC-0.6
+- `03_system_requirements.md` → SYS-0.28
+- `04_functional_architecture.md` → FA-0.22
+- `05_technical_spikes.md` → TS-0.18
+- `06_requirements_traceability.md` → RTM-0.3
+- `07_quantitative_acceptance.md` → QA-0.2
+- `08_iteration1_verification_report.md` → IVR-0.1
+- `iteration1_acceptance_certificate.json` → certificate schema v1
+- `09_iteration2_requirements.md` → I2-SYS-0.4
+- `10_iteration2_traceability.md` → I2-RTM-0.4
 
 ## Changes incorporated
 
-The documentation now reflects executable behavior through PanoPilot 0.19:
+The documentation now reflects executable behavior through PanoPilot 0.43:
 
 - Project Organizer / Clip Editor split;
 - multi-Clip sequential Project model;
@@ -279,3 +285,100 @@ unimplemented end-to-end capability.
 - mismatch blocking/no silent substitution;
 - draggable Camera Position timeline markers;
 - normalized requirement IDs and traceability matrix.
+
+
+## PanoPilot 0.42 additions
+
+- bounded background job manager with cooperative cancellation;
+- per-Clip preview preparation isolation and explicit Clip readiness state;
+- background source validation from Add OSV Files;
+- responsive Project Organizer during final export;
+- safe export cancellation without partial final-output replacement;
+- closure of SYS-PREV-004, SYS-PERF-003, and SYS-PERF-004.
+
+
+## PanoPilot 0.43 additions
+
+- resolves the supported OSV profile and all remaining quantitative constants;
+- adds `panopilot acceptance-run` for repeatable reference-system verification;
+- verifies preview/final camera geometry at 720p/1080p and both aspect ratios;
+- adds ready-preview camera-response and random-scrub latency benchmarks;
+- adds preview A/V stream timing measurement;
+- changes Project Preview playback to use Qt Multimedia audio position as the
+  playback clock when audio is available;
+- RTM static state becomes 205 PASS / 3 PARTIAL / 0 OPEN pending one real
+  reference-system acceptance report.
+
+
+## PanoPilot 0.44 additions
+
+- accepts the successful 0.43 Fedora / Radeon 890M reference-system evidence;
+- closes `SYS-AUDIO-003`, `SYS-PERF-001`, and `SYS-PERF-002`;
+- final RTM becomes **208 PASS / 0 PARTIAL / 0 OPEN**;
+- adds sanitized machine-readable Iteration-1 acceptance certification;
+- adds `panopilot acceptance-certify REPORT`;
+- adds the formal Iteration-1 verification report;
+- freezes the Iteration-1 requirements baseline for future development.
+
+
+## PanoPilot 0.45 additions — Iteration 2 begins
+
+- preserves the closed Iteration-1 baseline at 208/208 PASS;
+- creates a separate Iteration-2 requirements and traceability baseline;
+- adds saved final-output FPS selection: Auto, 24, 25, 30, 50, or 60 fps;
+- new Projects default to Auto, resolving to 60 fps for the qualified 100 fps
+  DJI source profile;
+- pre-v9 Projects migrate to explicit 30 fps to preserve prior export behavior;
+- final frame rate appears in the Organizer and export confirmation;
+- `project-export --fps` provides a one-export override;
+- the Project Organizer remains alive while Clip editing is open and reloads
+  the saved Project when the Clip Editor closes;
+- embeds the proven Clip Editor into the right-hand side of the Project workspace while the Clip sequence remains visible.
+
+
+## PanoPilot 0.46 additions — focus-first desktop refactor
+
+- removes the permanent Project/Editor horizontal splitter;
+- makes the reframed output the dominant workspace surface again;
+- replaces the vertical Clip-management pane with a compact horizontal Clip
+  strip backed by a GUI-independent presentation mapping and lazy Qt model;
+- moves Project/export configuration behind Project Settings;
+- moves precise direction, roll, and easing controls behind Fine Camera
+  Controls;
+- adds Focus mode for maximum viewer real estate;
+- centralizes desktop styling in `desktop_theme.py`;
+- moves workspace summary/view-state composition into
+  `workspace_presenter.py`;
+- removes the nested event loop from embedded Clip editing while preserving the
+  standalone `explore` contract;
+- leaves all accepted rendering, stabilization, trim, View Path, and export
+  behavior unchanged.
+
+
+## PanoPilot 0.47 additions
+
+- explicit dark-theme foreground/control colors for host-palette-independent
+  contrast;
+- maximized-by-default but restorable/resizable Project and standalone Clip
+  windows;
+- responsive reframed-preview scaling instead of fixed display-pixmap sizing;
+- explicit Reframe and Trim workflow modes;
+- camera-only timeline annotations while reframing and trim-only annotations
+  while trimming;
+- visible Camera Position action renamed to Save Camera Position with direct
+  explanation of its View Path role;
+- compact Clip thumbnails derived from disposable preview cache;
+- lazy source-thumbnail rail in Trim mode;
+- new I2-UX-005 through I2-UX-008 requirements and 0.47 regression checks.
+
+
+## PanoPilot 0.48 additions
+
+- native `QMainWindow` Project shell;
+- classic File/Edit/Clip/View/Settings command menus;
+- fixed bottom Project/background-work status bar;
+- modeless Project Settings dialog;
+- central top action/settings/work panels removed;
+- Clip strip hidden automatically during Clip editing;
+- full-container reframed preview surface with aspect-preserving letterboxing;
+- embedded Save/Undo/Redo routed through the parent menu bar.

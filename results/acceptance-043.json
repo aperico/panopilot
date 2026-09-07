@@ -1,0 +1,492 @@
+{
+  "acceptance_schema_version": 1,
+  "project": "results/panopilot_project.json",
+  "reference_system": {
+    "qualified": true,
+    "os_match": true,
+    "gpu_match": true,
+    "os_id": "fedora",
+    "os_version": "44",
+    "os_pretty_name": "Fedora Linux 44 (Workstation Edition)",
+    "platform": "Linux-7.1.4-204.fc44.x86_64-x86_64-with-glibc2.43",
+    "python": "3.14.7",
+    "machine": "x86_64",
+    "gpu_detection_tokens": [
+      "radeon 890m",
+      "strix"
+    ],
+    "lspci_excerpt": "00:00.0 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Strix/Strix Halo Root Complex [1022:1507]\n00:00.2 IOMMU [0806]: Advanced Micro Devices, Inc. [AMD] Strix/Strix Halo IOMMU [1022:1508]\n00:01.0 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Strix/Strix Halo Dummy Host Bridge [1022:1509]\n00:01.1 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] Strix/Strix Halo PCIe USB4 Bridge [1022:150a]\n00:01.2 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] Strix/Strix Halo PCIe USB4 Bridge [1022:150a]\n00:02.0 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Strix/Strix Halo Dummy Host Bridge [1022:1509]\n00:02.1 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] Strix/Strix Halo GPP Bridge [1022:150b]\n00:02.3 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] Strix/Strix Halo GPP Bridge [1022:150b]\n00:02.4 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] Strix/Strix Halo GPP Bridge [1022:150b]\n00:03.0 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Strix/Strix Halo Dummy Host Bridge [1022:1509]\n00:08.0 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Strix/Strix Halo Dummy Host Bridge [1022:1509]\n00:08.1 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] Strix/Strix Halo Internal GPP Bridge to Bus [C:A] [1022:150c]\n00:08.2 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] Strix/Strix Halo Internal GPP Bridge to Bus [C:A] [1022:150c]\n00:08.3 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] Strix/Strix Halo Internal GPP Bridge to Bus [C:A] [1022:150c]\n00:14.0 SMBus [0c05]: Advanced Micro Devices, Inc. [AMD] FCH SMBus Controller [1022:790b] (rev 71)\n00:14.3 ISA bridge [0601]: Advanced Micro Devices, Inc. [AMD] FCH LPC Bridge [1022:790e] (rev 51)\n00:18.0 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Strix Data Fabric; Function 0 [1022:16f8]\n00:18.1 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Strix Data Fabric; Function 1 [1022:16f9]\n00:18.2 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD]"
+  },
+  "thresholds": {
+    "SUPPORTED-OSV-PROFILE-001": "dji-osmo360-dual-1920-hevc-100fps-v1",
+    "CAMERA-EQUIVALENCE-001_source_pixels": 0.05,
+    "CAMERA-RESPONSE-001_p95_ms": 100.0,
+    "SCRUB-RESPONSE-001_p95_ms": 250.0,
+    "PREVIEW-AV-SYNC-001_ms": 100.0
+  },
+  "requirements": {
+    "SYS-MEDIA-001": {
+      "requirement_id": "SYS-MEDIA-001",
+      "passed": true,
+      "measured": {
+        "profile_id": "dji-osmo360-dual-1920-hevc-100fps-v1",
+        "clip_results": [
+          {
+            "clip_id": "clip-2",
+            "source": "/home/aperico/Videos/osmo/CAM_20260829102703_0003_D.OSV",
+            "accepted": true,
+            "reason": "supported",
+            "identity": {
+              "algorithm": "sampled-sha256-v1",
+              "size": 266667840,
+              "fingerprint": "d9619df6078a52079fd38a4b79a9aa31c2ec9977f249cc4a15a7710236c6e42d",
+              "sample_bytes": 1048576,
+              "sample_offsets": [
+                0,
+                132809632,
+                265619264
+              ],
+              "resolved_path": "/home/aperico/Videos/osmo/CAM_20260829102703_0003_D.OSV",
+              "mtime_ns": 1788010043030000000
+            },
+            "duration": 17.685333,
+            "lens_stream_indexes": [
+              0,
+              1
+            ],
+            "lens_dimensions": [
+              1920,
+              1920
+            ],
+            "orientation_packets": 1768,
+            "profile_id": "dji-osmo360-dual-1920-hevc-100fps-v1",
+            "profile_observed": {
+              "profile_id": "dji-osmo360-dual-1920-hevc-100fps-v1",
+              "lens_count": 2,
+              "lenses": [
+                {
+                  "index": 0,
+                  "codec": "hevc",
+                  "width": 1920,
+                  "height": 1920,
+                  "fps": 100.0,
+                  "start_time": 0.0
+                },
+                {
+                  "index": 1,
+                  "codec": "hevc",
+                  "width": 1920,
+                  "height": 1920,
+                  "fps": 100.0,
+                  "start_time": 0.0
+                }
+              ]
+            }
+          },
+          {
+            "clip_id": "clip-1",
+            "source": "/home/aperico/workspace/osmo360/samples/osmosample.OSV",
+            "accepted": true,
+            "reason": "supported",
+            "identity": {
+              "algorithm": "sampled-sha256-v1",
+              "size": 90787959,
+              "fingerprint": "7f6252937b3afeff40bfdde2b3d36988e4dbd673ad6924ff418a0830826e4bac",
+              "sample_bytes": 1048576,
+              "sample_offsets": [
+                0,
+                44869691,
+                89739383
+              ],
+              "resolved_path": "/home/aperico/workspace/osmo360/samples/osmosample.OSV",
+              "mtime_ns": 1788108774860000000
+            },
+            "duration": 6.016,
+            "lens_stream_indexes": [
+              0,
+              1
+            ],
+            "lens_dimensions": [
+              1920,
+              1920
+            ],
+            "orientation_packets": 601,
+            "profile_id": "dji-osmo360-dual-1920-hevc-100fps-v1",
+            "profile_observed": {
+              "profile_id": "dji-osmo360-dual-1920-hevc-100fps-v1",
+              "lens_count": 2,
+              "lenses": [
+                {
+                  "index": 0,
+                  "codec": "hevc",
+                  "width": 1920,
+                  "height": 1920,
+                  "fps": 100.0,
+                  "start_time": 0.0
+                },
+                {
+                  "index": 1,
+                  "codec": "hevc",
+                  "width": 1920,
+                  "height": 1920,
+                  "fps": 100.0,
+                  "start_time": 0.0
+                }
+              ]
+            }
+          },
+          {
+            "clip_id": "clip-3",
+            "source": "/home/aperico/Videos/osmo/CAM_20260829104410_0007_D.OSV",
+            "accepted": true,
+            "reason": "supported",
+            "identity": {
+              "algorithm": "sampled-sha256-v1",
+              "size": 10411550,
+              "fingerprint": "9c2a30c0d07b06cdbfd78c621c44937ec44fc8878c8d277737a236a09d611d9a",
+              "sample_bytes": 1048576,
+              "sample_offsets": [
+                0,
+                4681487,
+                9362974
+              ],
+              "resolved_path": "/home/aperico/Videos/osmo/CAM_20260829104410_0007_D.OSV",
+              "mtime_ns": 1788011052150000000
+            },
+            "duration": 0.661333,
+            "lens_stream_indexes": [
+              0,
+              1
+            ],
+            "lens_dimensions": [
+              1920,
+              1920
+            ],
+            "orientation_packets": 65,
+            "profile_id": "dji-osmo360-dual-1920-hevc-100fps-v1",
+            "profile_observed": {
+              "profile_id": "dji-osmo360-dual-1920-hevc-100fps-v1",
+              "lens_count": 2,
+              "lenses": [
+                {
+                  "index": 0,
+                  "codec": "hevc",
+                  "width": 1920,
+                  "height": 1920,
+                  "fps": 100.0,
+                  "start_time": 0.0
+                },
+                {
+                  "index": 1,
+                  "codec": "hevc",
+                  "width": 1920,
+                  "height": 1920,
+                  "fps": 100.0,
+                  "start_time": 0.0
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "threshold": {
+        "supported_profile_id": "dji-osmo360-dual-1920-hevc-100fps-v1"
+      },
+      "evidence": "source profile + calibration + orientation + decode smoke"
+    },
+    "SYS-CAM-009": {
+      "requirement_id": "SYS-CAM-009",
+      "passed": true,
+      "measured": {
+        "max_source_pixel_error": 0.043536216020584106,
+        "threshold_source_pixels": 0.05,
+        "passed": true,
+        "observations": [
+          {
+            "aspect": "16:9",
+            "resolution": "720p",
+            "yaw_deg": 0.0,
+            "pitch_deg": 0.0,
+            "roll_deg": 0.0,
+            "fov_deg": 90.0,
+            "max_source_pixel_error": 0.000244140625,
+            "p99_9_source_pixel_error": 0.000244140625
+          },
+          {
+            "aspect": "16:9",
+            "resolution": "720p",
+            "yaw_deg": 43.25,
+            "pitch_deg": -18.5,
+            "roll_deg": 12.75,
+            "fov_deg": 72.0,
+            "max_source_pixel_error": 0.000244140625,
+            "p99_9_source_pixel_error": 0.000244140625
+          },
+          {
+            "aspect": "16:9",
+            "resolution": "720p",
+            "yaw_deg": -151.0,
+            "pitch_deg": 37.0,
+            "roll_deg": -31.0,
+            "fov_deg": 112.0,
+            "max_source_pixel_error": 0.00075531005859375,
+            "p99_9_source_pixel_error": 0.0003509521484375
+          },
+          {
+            "aspect": "16:9",
+            "resolution": "1080p",
+            "yaw_deg": 0.0,
+            "pitch_deg": 0.0,
+            "roll_deg": 0.0,
+            "fov_deg": 90.0,
+            "max_source_pixel_error": 0.000244140625,
+            "p99_9_source_pixel_error": 0.000244140625
+          },
+          {
+            "aspect": "16:9",
+            "resolution": "1080p",
+            "yaw_deg": 43.25,
+            "pitch_deg": -18.5,
+            "roll_deg": 12.75,
+            "fov_deg": 72.0,
+            "max_source_pixel_error": 0.000244140625,
+            "p99_9_source_pixel_error": 0.000244140625
+          },
+          {
+            "aspect": "16:9",
+            "resolution": "1080p",
+            "yaw_deg": -151.0,
+            "pitch_deg": 37.0,
+            "roll_deg": -31.0,
+            "fov_deg": 112.0,
+            "max_source_pixel_error": 0.000732421875,
+            "p99_9_source_pixel_error": 0.00034332275390625
+          },
+          {
+            "aspect": "9:16",
+            "resolution": "720p",
+            "yaw_deg": 0.0,
+            "pitch_deg": 0.0,
+            "roll_deg": 0.0,
+            "fov_deg": 90.0,
+            "max_source_pixel_error": 0.000244140625,
+            "p99_9_source_pixel_error": 0.000244140625
+          },
+          {
+            "aspect": "9:16",
+            "resolution": "720p",
+            "yaw_deg": 43.25,
+            "pitch_deg": -18.5,
+            "roll_deg": 12.75,
+            "fov_deg": 72.0,
+            "max_source_pixel_error": 0.0003662109375,
+            "p99_9_source_pixel_error": 0.000244140625
+          },
+          {
+            "aspect": "9:16",
+            "resolution": "720p",
+            "yaw_deg": -151.0,
+            "pitch_deg": 37.0,
+            "roll_deg": -31.0,
+            "fov_deg": 112.0,
+            "max_source_pixel_error": 0.03876432776451111,
+            "p99_9_source_pixel_error": 0.001064300537109375
+          },
+          {
+            "aspect": "9:16",
+            "resolution": "1080p",
+            "yaw_deg": 0.0,
+            "pitch_deg": 0.0,
+            "roll_deg": 0.0,
+            "fov_deg": 90.0,
+            "max_source_pixel_error": 0.000244140625,
+            "p99_9_source_pixel_error": 0.000244140625
+          },
+          {
+            "aspect": "9:16",
+            "resolution": "1080p",
+            "yaw_deg": 43.25,
+            "pitch_deg": -18.5,
+            "roll_deg": 12.75,
+            "fov_deg": 72.0,
+            "max_source_pixel_error": 0.00048828125,
+            "p99_9_source_pixel_error": 0.000244140625
+          },
+          {
+            "aspect": "9:16",
+            "resolution": "1080p",
+            "yaw_deg": -151.0,
+            "pitch_deg": 37.0,
+            "roll_deg": -31.0,
+            "fov_deg": 112.0,
+            "max_source_pixel_error": 0.043536216020584106,
+            "p99_9_source_pixel_error": 0.001056671142578125
+          }
+        ]
+      },
+      "threshold": {
+        "max_source_pixel_error": 0.05
+      },
+      "evidence": "reference preview map versus optimized final projector map"
+    },
+    "SYS-AUDIO-003": {
+      "requirement_id": "SYS-AUDIO-003",
+      "passed": true,
+      "measured": {
+        "clip_results": [
+          {
+            "clip_id": "clip-2",
+            "source": "/home/aperico/Videos/osmo/CAM_20260829102703_0003_D.OSV",
+            "preview": "/home/aperico/.cache/panopilot/preview/1ea5e1fa12185d26795b/panorama.mp4",
+            "applicable": true,
+            "passed": true,
+            "video_start_s": 0.0,
+            "audio_start_s": 0.0,
+            "video_duration_s": 17.65,
+            "audio_duration_s": 17.685,
+            "start_error_ms": 0.0,
+            "end_error_ms": 35.00000000000014,
+            "max_error_ms": 35.00000000000014,
+            "threshold_ms": 100.0
+          },
+          {
+            "clip_id": "clip-1",
+            "source": "/home/aperico/workspace/osmo360/samples/osmosample.OSV",
+            "preview": "/home/aperico/.cache/panopilot/preview/88dfbe964787e358ca83/panorama.mp4",
+            "applicable": true,
+            "passed": true,
+            "video_start_s": 0.0,
+            "audio_start_s": 0.0,
+            "video_duration_s": 6.0,
+            "audio_duration_s": 5.994,
+            "start_error_ms": 0.0,
+            "end_error_ms": 6.000000000000227,
+            "max_error_ms": 6.000000000000227,
+            "threshold_ms": 100.0
+          },
+          {
+            "clip_id": "clip-3",
+            "source": "/home/aperico/Videos/osmo/CAM_20260829104410_0007_D.OSV",
+            "preview": "/home/aperico/.cache/panopilot/preview/1243e83c5f8627f588f4/panorama.mp4",
+            "applicable": true,
+            "passed": true,
+            "video_start_s": 0.0,
+            "audio_start_s": 0.0,
+            "video_duration_s": 0.65,
+            "audio_duration_s": 0.64,
+            "start_error_ms": 0.0,
+            "end_error_ms": 10.000000000000009,
+            "max_error_ms": 10.000000000000009,
+            "threshold_ms": 100.0
+          }
+        ]
+      },
+      "threshold": {
+        "max_preview_av_sync_error_ms": 100.0
+      },
+      "evidence": "cached preview audio/video start and end timing"
+    },
+    "SYS-PERF-001": {
+      "requirement_id": "SYS-PERF-001",
+      "passed": true,
+      "measured": {
+        "reference_system_qualified": true,
+        "clip_results": [
+          {
+            "clip_id": "clip-2",
+            "source": "/home/aperico/Videos/osmo/CAM_20260829102703_0003_D.OSV",
+            "sample_count": 24,
+            "view_width": 800,
+            "view_height": 450,
+            "median_ms": 12.264340068213642,
+            "p95_ms": 12.769314821343869,
+            "max_ms": 18.201144877821207,
+            "threshold_p95_ms": 100.0,
+            "passed": true
+          },
+          {
+            "clip_id": "clip-1",
+            "source": "/home/aperico/workspace/osmo360/samples/osmosample.OSV",
+            "sample_count": 24,
+            "view_width": 800,
+            "view_height": 450,
+            "median_ms": 12.151133036240935,
+            "p95_ms": 12.37635409925133,
+            "max_ms": 12.420109007507563,
+            "threshold_p95_ms": 100.0,
+            "passed": true
+          },
+          {
+            "clip_id": "clip-3",
+            "source": "/home/aperico/Videos/osmo/CAM_20260829104410_0007_D.OSV",
+            "sample_count": 24,
+            "view_width": 800,
+            "view_height": 450,
+            "median_ms": 12.11359107401222,
+            "p95_ms": 12.437846837565303,
+            "max_ms": 12.638155836611986,
+            "threshold_p95_ms": 100.0,
+            "passed": true
+          }
+        ]
+      },
+      "threshold": {
+        "p95_ms": 100.0,
+        "reference_system_required": true
+      },
+      "evidence": "ready cached panorama -> 800px-long-edge visible reframe"
+    },
+    "SYS-PERF-002": {
+      "requirement_id": "SYS-PERF-002",
+      "passed": true,
+      "measured": {
+        "reference_system_qualified": true,
+        "clip_results": [
+          {
+            "clip_id": "clip-2",
+            "source": "/home/aperico/Videos/osmo/CAM_20260829102703_0003_D.OSV",
+            "sample_count": 12,
+            "view_width": 800,
+            "view_height": 450,
+            "median_ms": 51.97113344911486,
+            "p95_ms": 101.3925094041042,
+            "max_ms": 106.13551898859441,
+            "threshold_p95_ms": 250.0,
+            "passed": true
+          },
+          {
+            "clip_id": "clip-1",
+            "source": "/home/aperico/workspace/osmo360/samples/osmosample.OSV",
+            "sample_count": 12,
+            "view_width": 800,
+            "view_height": 450,
+            "median_ms": 47.371710068546236,
+            "p95_ms": 69.82121559558436,
+            "max_ms": 70.7480909768492,
+            "threshold_p95_ms": 250.0,
+            "passed": true
+          },
+          {
+            "clip_id": "clip-3",
+            "source": "/home/aperico/Videos/osmo/CAM_20260829104410_0007_D.OSV",
+            "sample_count": 12,
+            "view_width": 800,
+            "view_height": 450,
+            "median_ms": 23.23365886695683,
+            "p95_ms": 27.590791985858232,
+            "max_ms": 27.64518093317747,
+            "threshold_p95_ms": 250.0,
+            "passed": true
+          }
+        ]
+      },
+      "threshold": {
+        "p95_ms": 250.0,
+        "reference_system_required": true
+      },
+      "evidence": "random preview-cache seek + 800px-long-edge reframe"
+    }
+  },
+  "all_five_pass": true,
+  "iteration1_acceptance_qualified": true
+}

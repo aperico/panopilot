@@ -1,7 +1,7 @@
 # PanoPilot — System Definition
 
 Status: Draft  
-Baseline: SD-0.25
+Baseline: SD-0.27
 Scope: Iteration 1
 
 ---
@@ -1353,3 +1353,65 @@ controls without requiring mouse gestures.
 # 37. Source Integrity and Requirements Closure — PanoPilot 0.41
 
 A source reference consists of a locating path plus expected sampled media identity. Mismatch is a blocked state, not an implicit relink. Camera Position Source Time is now directly editable by dragging its timeline marker without changing orientation/FOV.
+
+
+---
+
+# 37. Background Work Model — PanoPilot 0.42
+
+Long-running media work is represented by explicit background jobs rather than
+executed on the Qt GUI thread.
+
+Each job has a stable key, lifecycle state, progress event, result/error, and a
+cooperative cancellation token. The Project Organizer polls immutable job
+snapshots from the GUI thread; worker code never manipulates Qt widgets.
+
+Preview preparation is scoped per Clip. A Clip whose preview is ready remains
+usable regardless of another Clip job being queued, running, failed, or
+cancelled.
+
+Final export consumes the last saved Project snapshot. Edits made while that
+export is running remain local to the current editor session and affect only a
+subsequent export unless saved and exported again.
+
+
+---
+
+# 38. Quantitative Iteration-1 Acceptance — PanoPilot 0.43
+
+Iteration-1 performance and synchronization acceptance is executable rather
+than informal.
+
+The designated Fedora / AMD Radeon 890M reference machine shall execute the
+Project-based acceptance suite. The suite uses the normal panoramic preview
+cache and the real Project Source Recordings.
+
+Resolved product targets are:
+
+- supported source profile:
+  `dji-osmo360-dual-1920-hevc-100fps-v1`;
+- preview/final camera geometry: ≤0.05 source-panorama pixel;
+- ready-preview camera response: p95 ≤100 ms;
+- random scrub response: p95 ≤250 ms;
+- preview A/V synchronization error: ≤100 ms.
+
+
+---
+
+# 39. Iteration-1 Baseline Closure — PanoPilot 0.44
+
+The Iteration-1 requirements baseline contains 208 normative requirements.
+
+Reference-system quantitative acceptance completed successfully on the
+designated Fedora / AMD Radeon 890M system. The final status is:
+
+```text
+PASS       208
+PARTIAL      0
+OPEN         0
+```
+
+The Iteration-1 requirements, quantitative limits, and acceptance evidence are
+therefore treated as a closed product baseline. Future product increments shall
+define new or changed requirements explicitly rather than modifying the closed
+Iteration-1 criteria implicitly.

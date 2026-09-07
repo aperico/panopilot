@@ -66,7 +66,7 @@ def test_camera_position_roll_round_trip_and_v6_migration():
         }
     )
 
-    assert project.schema_version == 8
+    assert project.schema_version == 10
     assert (
         project.clips[0]
         .camera_positions[0]

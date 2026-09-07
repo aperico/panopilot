@@ -8,32 +8,34 @@ from panopilot.project import Project
 from panopilot.session import ProjectSession
 
 
-def test_720p_and_1080p_landscape_dimensions():
+def test_output_resolutions_landscape_dimensions():
     p720 = output_profile_for_aspect(
         "16:9",
         "720p",
     )
-    p1080 = output_profile_for_aspect(
-        "16:9",
-        "1080p",
-    )
+    p1080 = output_profile_for_aspect("16:9", "1080p")
+    p1440 = output_profile_for_aspect("16:9", "1440p")
+    p2160 = output_profile_for_aspect("16:9", "2160p")
 
     assert (p720.width, p720.height) == (1280, 720)
     assert (p1080.width, p1080.height) == (1920, 1080)
+    assert (p1440.width, p1440.height) == (2560, 1440)
+    assert (p2160.width, p2160.height) == (3840, 2160)
 
 
-def test_720p_and_1080p_portrait_dimensions():
+def test_output_resolutions_portrait_dimensions():
     p720 = output_profile_for_aspect(
         "9:16",
         "720p",
     )
-    p1080 = output_profile_for_aspect(
-        "9:16",
-        "1080p",
-    )
+    p1080 = output_profile_for_aspect("9:16", "1080p")
+    p1440 = output_profile_for_aspect("9:16", "1440p")
+    p2160 = output_profile_for_aspect("9:16", "2160p")
 
     assert (p720.width, p720.height) == (720, 1280)
     assert (p1080.width, p1080.height) == (1080, 1920)
+    assert (p1440.width, p1440.height) == (1440, 2560)
+    assert (p2160.width, p2160.height) == (2160, 3840)
 
 
 def test_quality_presets_order_fidelity_by_crf():
@@ -43,12 +45,13 @@ def test_quality_presets_order_fidelity_by_crf():
     high = export_quality_for_name(
         "high"
     )
-    very_high = export_quality_for_name(
-        "very-high"
-    )
+    very_high = export_quality_for_name("very-high")
+    master = export_quality_for_name("master")
 
-    assert very_high.crf < high.crf < standard.crf
-    assert high.crf == 18
+    assert master.crf < very_high.crf < high.crf < standard.crf
+    assert high.crf == 16
+    assert high.preset == "slow"
+    assert master.crf == 10
 
 
 def test_schema_v5_migrates_to_previous_1080_high_behavior():
@@ -83,7 +86,7 @@ def test_output_options_round_trip_schema_v6():
     )
     data = project.to_dict()
 
-    assert data["schema_version"] == 8
+    assert data["schema_version"] == 10
     assert data["output_frame"]["resolution"] == "720p"
     assert data["output_frame"]["quality"] == "very-high"
 
