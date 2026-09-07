@@ -1,6 +1,6 @@
 # PanoPilot
 
-Current internal version: `0.28.0`
+Current internal version: `0.37.0`
 
 # 0.18 — Multi-Clip sequential project editing
 
@@ -1581,3 +1581,471 @@ panopilot project-export \
 
 The direct path changes sampling order, so promotion to the default requires a
 representative visual comparison plus a material wall-time improvement.
+
+
+# 0.29 — Adjustable 3-Axis Motion Stabilization
+
+PanoPilot now persists a Project-wide **Stabilization Amount** from 0% to 100%.
+The previous horizon correction removes gravity tilt but does not suppress all
+high-frequency physical camera yaw/pitch/roll motion.
+
+0.29 adds a centered, zero-phase 400 ms quaternion trajectory and applies the
+raw-to-smoothed 3-axis orientation delta before horizon leveling:
+
+```text
+raw DJI orientation -> centered smoothed orientation
+        -> 3-axis correction × Stabilization Amount
+        -> horizon leveling -> final content rotation
+```
+
+0% preserves the previous horizon-only behavior. 100% applies the full
+correction toward the smoothed trajectory. A practical first setting for rough
+handheld/water footage is 60–80%.
+
+The Project Organizer exposes the slider. Save the Project before Preview or
+Clip editing; stabilization is part of preview-cache identity, so a matching
+preview is prepared automatically.
+
+CLI override:
+
+```bash
+panopilot project-export results/panopilot_project.json \
+  -o results/stabilized.mp4 \
+  --render-pipeline direct \
+  --stabilization-amount 70
+```
+
+
+# 0.30 — High-Precision Adaptive Gyro Stabilization
+
+0.29 showed that fixed Gaussian quaternion smoothing after downsampling to the output-frame cadence was not sufficient for rough-water shake. 0.30 replaces that stabilizer with a native-IMU-rate adaptive trajectory filter.
+
+```text
+DJI high-rate orientation (~1 kHz)
+        ↓
+angular velocity estimate + zero-phase smoothing
+        ↓
+velocity-adaptive quaternion time constant
+        ↓
+two-pass quaternion trajectory smoothing
+        ↓
+exact SLERP at every video exposure time
+        ↓
+strong nonlinear Stabilization Amount gain
+        ↓
+existing horizon leveling
+```
+
+Low/medium angular velocity receives long, gimbal-like smoothing. Sustained fast turns receive a shorter time constant so deliberate movement remains followable. 70% is intentionally much stronger than in 0.29. The implementation is clean-room and has no Gyroflow runtime dependency.
+
+Timing uses PanoPilot's existing DJI high-rate timeline: the matching high-rate quaternion in each metadata packet is anchored to the per-frame DJI timestamp, and the stabilized trajectory is then SLERPed at the selected source exposure time.
+
+
+# 0.31 — Hybrid Visual Residual Stabilization Spike
+
+0.30's high-rate gyro stabilization removes rotational shake, but walking/bobbing, parallax and residual timing/calibration error can still move the final image. 0.31 adds an opt-in image-space residual stage based on sparse KLT optical flow, RANSAC similarity motion, centered clip-local camera-path smoothing, and a crop-constrained affine correction.
+
+The stage resets at Project Clip boundaries and never treats a hard cut as shake. A 25% crop retains 75% of each linear frame dimension (1.333x zoom reserve). Correction is automatically reduced on frames that would otherwise exceed the crop envelope.
+
+Use:
+
+```bash
+panopilot project-export \
+  results/panopilot_project.json \
+  -o results/final-031-hybrid.mp4 \
+  --render-pipeline direct \
+  --stabilization-amount 100 \
+  --visual-stabilization \
+  --stabilization-crop 25 \
+  --report results/export-performance-031.json
+```
+
+The visual stage is deliberately opt-in in 0.31 because Project Preview does not yet execute the same second pass. Once representative footage passes the visual gate, the next increment can integrate the residual path into preview/project semantics.
+
+
+# 0.32 — Extreme Crop-Backed Stabilization
+
+0.31/0.30 representative footage still retained visible shake even with gyro
+stabilization and a 30% crop. 0.32 adds a deliberately aggressive offline
+stabilizer.
+
+The standard 0.31 visual stabilizer remains available. Extreme mode adds:
+
+```text
+rendered gyro-stabilized video
+        ↓
+high-resolution KLT tracks
+        ↓
+forward/backward consistency rejection
+        ↓
+RANSAC similarity motion
+        ↓
+long centered camera-path smoothing
+        ↓
+compose correction
+        ↓
+re-render analysis view virtually
+        ↓
+measure residual motion again
+        ↓
+repeat 3 times
+        ↓
+one final source-image warp
+        ↓
+large fixed crop reserve
+```
+
+This differs materially from simply increasing a Gaussian strength. Each pass
+measures the motion left after the previous correction and removes that residual
+in a second/third optimization pass.
+
+Extreme mode also stabilizes short-term uniform scale change in addition to
+translation and rotation.
+
+Recommended strong test:
+
+```bash
+panopilot project-export \
+  results/panopilot_project.json \
+  -o results/final-032-extreme.mp4 \
+  --render-pipeline direct \
+  --stabilization-amount 100 \
+  --visual-stabilization \
+  --visual-stabilization-mode extreme \
+  --stabilization-crop 45 \
+  --report results/export-performance-032.json
+```
+
+For an intentionally very aggressive test:
+
+```text
+--stabilization-crop 50
+```
+
+Extreme mode permits up to 60% linear crop. A 50% crop corresponds to a 2.0x
+effective zoom.
+
+The final 1920x1080 image is still warped only once. Iterative passes operate on
+analysis images and compose their transforms before final rendering, avoiding
+three full-resolution resampling generations.
+
+
+# 0.33 — Locked Anti-Wobble Stabilization
+
+The 0.32 Extreme mode proved that large crop-backed correction can remove much
+more shake, but its iterative per-frame similarity model could create visible
+wobble/zoom breathing. The representative report showed 1.3–2.2% p95 scale
+changes in the visual estimator and later passes whose crop-limited correction
+ratio fell to zero on some frames.
+
+0.33 adds `locked` mode for the case where steadiness matters more than
+retaining all image motion:
+
+```text
+high-rate gyro rotation stabilization
+        ↓
+robust visual motion measurement
+        ↓
+TRANSLATION ONLY residual path
+        ↓
+robust quadratic path per Clip
+        ↓
+one crop-feasibility gain for the whole Clip/pass
+        ↓
+fixed crop + one final image warp
+```
+
+Locked mode deliberately disables visual rotation and scale correction. The
+high-rate gyro remains responsible for orientation. This prevents optical-flow
+parallax from being converted into frame rotation or zoom breathing.
+
+Unlike 0.32, the crop limiter never changes correction strength independently
+from one frame to the next. One gain is solved for the complete Clip/pass, so
+crop constraints cannot introduce correction pulses.
+
+Recommended test:
+
+```bash
+panopilot project-export \
+  results/panopilot_project.json \
+  -o results/final-033-locked.mp4 \
+  --render-pipeline direct \
+  --stabilization-amount 100 \
+  --visual-stabilization \
+  --visual-stabilization-mode locked \
+  --stabilization-crop 50 \
+  --locked-stabilization-passes 2 \
+  --report results/export-performance-033.json
+```
+
+0.33 also fixes the CLI validation bug that incorrectly rejected >40% crop even
+when Extreme mode supported up to 60%. Extreme and Locked now both accept up to
+60%; Standard remains capped at 40%.
+
+# 0.34 — 360-Aware Spherical Visual Lock
+
+The stabilization review identified the core architectural mistake in
+0.31–0.33: the dominant walking correction was being applied *after* reframing
+as a 2D crop/warp. That throws away the key advantage of a 360 source and forces
+translation/parallax disagreement into one image transform, which is exactly
+how wobble and excessive crop are created.
+
+0.34 changes the recommended path to a two-stage 360-aware architecture:
+
+```text
+original OSV + high-rate gyro
+        ↓
+first gyro/direct render (analysis only)
+        ↓
+robust coarse-mesh optical-flow motion
+        ↓
+extract dominant high-frequency walking/bobbing velocity
+        ↓
+convert rejected image motion to virtual-camera yaw/pitch offsets
+        ↓
+RE-RENDER FROM THE ORIGINAL 360 SPHERE
+        ↓
+small anchored local mesh for parallax / rolling-shutter / stitch residual
+        ↓
+minimum-required crop, capped at 12% in spherical mode
+```
+
+The dominant global correction therefore costs **zero crop**. PanoPilot steers
+the virtual camera into pixels that already exist elsewhere on the captured
+sphere instead of translating/cropping the finished 16:9 image.
+
+Only the remaining spatially varying residual is allowed to use a coarse 6×4
+mesh. The local mesh has zero global authority, is periodically anchored to the
+gyro-backed geometry, has no scale parameter and no per-frame zoom.
+
+`--stabilization-crop` is a maximum budget. In spherical mode the local residual
+stage is additionally capped at 12%, because a large crop is treated as a sign
+that the residual model is trying to solve motion that belongs in the spherical
+camera path.
+
+Recommended walking test:
+
+```bash
+panopilot project-export \
+  results/panopilot_project.json \
+  -o results/final-034-spherical.mp4 \
+  --render-pipeline direct \
+  --stabilization-amount 100 \
+  --visual-stabilization \
+  --visual-stabilization-mode spherical \
+  --stabilization-crop 12 \
+  --report results/export-performance-034.json
+```
+
+Spherical mode is now the default visual residual mode.
+
+
+# 0.35 — Rigid 3-Axis Spherical Visual Lock
+
+Review of the representative 0.34 walking output identified a missing degree of
+freedom in the spherical correction itself: visual analysis measured X/Y
+motion, but **discarded residual image rotation**. The second spherical render
+therefore corrected yaw/pitch while visible roll oscillation remained.
+
+Measured on the representative 0.34 output, the walking Clip contained roughly:
+
+```text
+pairwise visual roll p95              ~1.26 deg/frame
+pairwise visual roll max              ~3.68 deg/frame
+required smooth roll correction       up to ~7 deg
+spatial rotation disagreement p95     ~1.30 deg
+```
+
+The last value is also an important diagnostic: different image regions do not
+always agree on one rotation, which is consistent with some combination of
+parallax, rolling-shutter wobble, stitching residual, or a flexible post-warp.
+
+0.35 changes the global 360-aware analysis to a rigid three-channel model:
+
+```text
+forward/backward KLT tracks
+          ↓
+RANSAC partial-affine fit
+          ↓
+throw away fitted SCALE
+          ↓
+separate center translation from rotation
+          ↓
+[dx velocity, dy velocity, roll velocity]
+          ↓
+channel-aware zero-phase smoothing
+          ↓
+integrate only the rejected high-frequency band
+          ↓
+Virtual Camera yaw + pitch + roll
+          ↓
+re-render from original 360 source
+```
+
+Scale is measured only as a diagnostic nuisance variable; it is never a visual
+stabilization control.
+
+## Spherical mode is rigid by default
+
+The 0.34 spherical path automatically added a small local mesh after the sphere
+re-render. On walking footage that flexibility can re-introduce local shear and
+rotation wobble. 0.35 therefore returns the rigid spherical re-render directly.
+
+The local mesh remains available only as an explicit advanced experiment:
+
+```bash
+--spherical-local-mesh
+```
+
+and its authority/crop budget are intentionally reduced.
+
+## Crop-free global stabilization
+
+Pure spherical yaw/pitch/roll correction needs no crop. Therefore this now
+works and still performs global visual stabilization:
+
+```bash
+--visual-stabilization \
+--visual-stabilization-mode spherical \
+--stabilization-crop 0
+```
+
+Recommended validation command:
+
+```bash
+panopilot project-export \
+  results/panopilot_project.json \
+  -o results/final-035-rigid-spherical.mp4 \
+  --render-pipeline direct \
+  --stabilization-amount 100 \
+  --visual-stabilization \
+  --visual-stabilization-mode spherical \
+  --stabilization-crop 0 \
+  --report results/export-performance-035.json
+```
+
+The report now includes visual-roll statistics plus top/bottom and left/right
+rotation disagreement. If the rigid output is globally stable but still shows
+intra-frame bending/jello, that is the acceptance signal for the next layer:
+source-lens rolling-shutter correction using row-specific high-rate IMU times,
+not another stronger global warp.
+
+
+# 0.36 — Source-Row Gyro Rolling-Shutter Rectification
+
+The 0.35 result isolated a remaining failure mode: after strong frame-level
+gyro stabilization, walking footage can still show intra-frame rotation wobble
+or "jello". A rolling-shutter sensor does not expose the whole fisheye frame at
+one instant; each source row is captured at a slightly different time.
+
+PanoPilot 0.36 moves correction to the correct domain: **the original two
+fisheye lens streams before final direct sampling**.
+
+For a source row captured at orientation `R_row` and a synthetic global-shutter
+reference orientation `R_ref`, the desired factory-equirectangular direction is
+mapped to the source-row direction using the DJI BODY→WORLD trajectory:
+
+```text
+d_row =
+  A · R_rowᵀ · R_ref · Aᵀ · d_ref
+
+A = DJI IMU BODY → PanoPilot factory-equirectangular axes
+```
+
+The ~1 kHz DJI trajectory therefore provides intra-frame orientation, not just
+one quaternion per output frame.
+
+## Continuous source-row correction
+
+The direct renderer:
+
+```text
+Virtual Camera + gyro/horizon correction
+          ↓
+nominal factory-equirectangular source ray
+          ↓
+initial DJI factory map → source lens Y
+          ↓
+sensor-row exposure time
+          ↓
+~1 kHz row-time quaternion
+          ↓
+row-specific 3-axis ray correction
+          ↓
+DJI factory map again
+          ↓
+original lens sample
+```
+
+The row-time rotation is represented by **11 exact samples from the native ~1 kHz DJI trajectory** across the sensor readout and continuously interpolated between those samples. Two map iterations resolve the small dependency between corrected direction and source row.
+
+This is different from a global shear, homography, or post-render mesh. The
+correction follows the actual fisheye sensor row used for each output pixel.
+
+## Automatic readout calibration
+
+Rolling-shutter duration and timing are sensitive parameters. PanoPilot does
+not blindly assume a fixed DJI readout value.
+
+`--rolling-shutter auto` is the default for direct rendering. For each source
+Clip it:
+
+1. finds high-angular-motion frame pairs from the high-rate DJI trajectory;
+2. decodes those original lens frames once;
+3. searches signed readout durations bounded by one source-frame period;
+4. searches both top→bottom and bottom→top scan directions;
+5. also searches the sensor-readout midpoint offset relative to the DJI/frame
+   timing anchor;
+6. re-renders each candidate at analysis resolution from the original lenses;
+7. scores rigid-fit residual, spatial rotational disagreement,
+   forward/backward tracking error, and nuisance scale;
+8. accepts a non-zero solution only when it materially beats the zero-readout
+   baseline.
+
+The first-pass calibration is reused for the spherical visual re-render.
+
+Manual engineering controls remain available:
+
+```bash
+--rolling-shutter manual
+--rolling-shutter-readout-ms 8.0
+--rolling-shutter-reference-offset-ms -1.5
+--rolling-shutter-direction top-to-bottom
+```
+
+Disable the new stage for an A/B reference with:
+
+```bash
+--rolling-shutter off
+```
+
+## Rotation-wobble guard
+
+0.36 also changes the spherical visual roll correction. A full-frame visual
+roll estimate is trusted only when top/bottom and left/right image regions agree
+on that rotation.
+
+If the bands disagree, that is evidence for rolling shutter, parallax, stitch
+deformation, or local foreground motion. In those frames the ~1 kHz gyro stays
+authoritative and the visual roll correction is smoothly attenuated instead of
+turning spatially inconsistent motion into whole-frame rocking.
+
+Recommended test:
+
+```bash
+panopilot project-export \
+  results/panopilot_project.json \
+  -o results/final-036-rowtime.mp4 \
+  --render-pipeline direct \
+  --stabilization-amount 100 \
+  --visual-stabilization \
+  --visual-stabilization-mode spherical \
+  --stabilization-crop 0 \
+  --rolling-shutter auto \
+  --report results/export-performance-036.json
+```
+
+The performance report records the selected signed readout, scan direction,
+reference offset, calibration score improvement, and candidate scores for each
+Clip.
+\n\n# 0.37 — Final Export Size and Quality\n\nPanoPilot now exposes final delivery settings as Project-level output choices.\n\n**Size** is deliberately bounded to:\n\n- `720p` — 1280×720 for 16:9, 720×1280 for 9:16;\n- `1080p` — 1920×1080 for 16:9, 1080×1920 for 9:16.\n\nThere are no lower-than-720p or higher-than-1080p final-export options in this\nrelease. Preview/cache resolution remains an independent implementation detail.\n\n**Quality** presets are:\n\n- `Standard` — H.264 CRF 23, smaller file;\n- `High` — H.264 CRF 18, recommended and equivalent to the previous default;\n- `Very High` — H.264 CRF 15, higher fidelity/larger file.\n\nResolution and quality are persisted in Project schema v6 and are undoable in\nthe Project Organizer. Existing v1–v5 Projects migrate to `1080p / High`, so\nopening an older Project does not silently change its previous final-render\ngeometry or encoder quality.\n\nThe Project Organizer now contains an **Export** row with Size and Quality\nselectors. `Export Project…` automatically uses those saved settings.\n\nCLI overrides are available without changing the Project:\n\n```bash\npanopilot project-export project.json \\\n  -o output.mp4 \\\n  --resolution 720p \\\n  --quality high\n```\n\n`--crf` and `--preset` remain advanced engineering overrides. When omitted they\nare derived from the quality preset.\n

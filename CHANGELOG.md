@@ -1,5 +1,143 @@
 # Changelog
 
+## 0.37.0
+
+- Adds persisted final export size: 720p or 1080p.
+- Supports both sizes for 16:9 and 9:16 Projects.
+- Adds persisted H.264 quality presets: Standard, High, and Very High.
+- Keeps High at CRF 18 to preserve the previous export-quality default.
+- Migrates schema v1–v5 Projects to 1080p / High without changing prior output behavior.
+- Adds Project Organizer Size and Quality selectors with Undo/Redo support.
+- Adds CLI `--resolution` and `--quality` export overrides.
+- Keeps `--crf` and `--preset` as advanced overrides.
+- Updates Project schema to v6 and engineering documentation through 0.37.
+
+## 0.36.0
+
+- Adds source-lens rolling-shutter rectification to the direct renderer.
+- Uses the ~1 kHz DJI BODY→WORLD orientation trajectory at sensor-row exposure
+  time rather than treating each fisheye frame as a global-shutter image.
+- Applies the row-time correction before final lens sampling and seam blending.
+- Resolves source-row timing iteratively because corrected rays can change the
+  source lens row.
+- Adds automatic per-Clip calibration of signed readout duration.
+- Searches both sensor scan directions.
+- Jointly calibrates the readout midpoint offset relative to the frame/gyro
+  timing anchor.
+- Requires a material visual-score improvement over zero readout before
+  enabling an automatically fitted correction.
+- Reuses first-pass calibration for the spherical visual re-render.
+- Adds manual/off rolling-shutter engineering modes.
+- Adds spatial-coherence gating for visual roll correction so parallax/RS
+  disagreement does not become whole-frame rocking.
+- Adds detailed rolling-shutter diagnostics to final export reports.
+- Updates engineering documentation through 0.36.
+
+## 0.35.0
+
+- Adds crop-free visual **roll** correction to spherical stabilization.
+- Replaces translation-only spherical analysis with a robust rigid visual
+  decomposition: center translation + in-plane rotation.
+- Uses forward/backward KLT validation and RANSAC partial-affine fitting.
+- Discards fitted visual scale as a nuisance variable instead of using it as
+  stabilization authority.
+- Applies high-frequency residual X/Y/roll as Virtual Camera yaw/pitch/roll in
+  the second render from the original 360 source.
+- Extends `VirtualCamera` with backward-compatible `roll_deg` support.
+- Makes the flexible local mesh opt-in in spherical mode rather than automatic.
+- Adds `--spherical-local-mesh` for explicit residual-mesh experiments.
+- Allows spherical visual stabilization with `--stabilization-crop 0`.
+- Reports spatial rotation disagreement as a rolling-shutter/parallax diagnostic.
+- Updates engineering documentation through 0.35.
+
+## 0.34.0
+
+- Reworks stabilization around the 360 source instead of post-reframe crop.
+- Adds a first-pass visual analysis render and a second source-quality spherical
+  re-render with per-frame virtual-camera yaw/pitch offsets.
+- Estimates dominant walking/bobbing motion from the median of a robust coarse
+  optical-flow mesh.
+- Smooths pairwise visual velocity rather than absolute image position so slow
+  authored pans/travel are preserved while step-frequency shake is rejected.
+- Applies the dominant residual correction in spherical camera space with zero
+  crop cost.
+- Adds an anchored 6×4 local residual mesh only after spherical correction for
+  parallax, rolling-shutter and stitching residuals.
+- Gives the local mesh zero global authority so walking translation is not
+  corrected twice.
+- Caps spherical-mode local crop budget at 12% and uses the minimum required
+  static crop rather than the requested budget itself.
+- Removes scale/per-frame zoom from the recommended stabilization path.
+- Makes `spherical` the default visual residual mode.
+- Full regression suite: 295 tests.
+
+## 0.33.0
+
+- Adds `locked` visual stabilization mode aimed specifically at eliminating
+  wobble/zoom breathing after aggressive stabilization.
+- Visual residual correction in Locked mode is translation-only; gyro remains
+  authoritative for rotation.
+- Disables visual scale correction in Locked mode.
+- Uses robust quadratic per-Clip target paths instead of iterative similarity
+  smoothing.
+- Enforces crop feasibility with one gain per complete Clip/pass rather than
+  per-frame clipping.
+- Supports two residual translation passes by default, composed before one final
+  full-resolution warp.
+- Fixes CLI crop validation so Extreme/Locked modes can actually use 0..60%.
+- Adds `--locked-stabilization-passes 1..3`.
+
+## 0.32.0
+
+- Adds `--visual-stabilization-mode standard|extreme`.
+- Adds three-pass iterative residual stabilization in extreme mode.
+- Uses higher-resolution KLT analysis with forward/backward track validation.
+- Uses robust RANSAC similarity motion estimation.
+- Re-analyzes the virtually stabilized image after each pass instead of
+  assuming the first correction removed all shake.
+- Stabilizes translation, rotation, and bounded short-term scale jitter.
+- Composes all pass corrections and performs only one final full-resolution
+  image warp.
+- Raises extreme-mode crop budget to 60%.
+- Adds `--extreme-stabilization-passes 1..4`.
+- Keeps the accepted 0.31 standard stabilizer unchanged.
+- Updates engineering documentation through 0.32.
+
+## 0.31.0
+
+- Adds opt-in hybrid visual residual stabilization after gyro/direct rendering.
+- Uses sparse KLT optical flow and RANSAC similarity motion estimation.
+- Resets cumulative visual motion at Project Clip boundaries.
+- Smooths clip-local image trajectories to suppress walking/bobbing and residual jitter.
+- Corrects residual translation and small image-plane rotation.
+- Adds crop-constrained correction to prevent black borders.
+- Adds `--visual-stabilization` and `--stabilization-crop 0..40`.
+- Uses CRF 12 for the intermediate render when the visual second pass is enabled, then encodes the final requested CRF.
+- Keeps the visual stage opt-in until preview integration and visual acceptance are complete.
+
+## 0.30.0
+
+- Replaces output-frame Gaussian stabilization with native-IMU-rate velocity-adaptive quaternion trajectory smoothing.
+- Smooths the ~1 kHz DJI trajectory before video exposure-time sampling.
+- Adds zero-phase angular-velocity filtering and velocity-dependent quaternion time constants.
+- Uses two bidirectional quaternion passes at meaningful stabilization levels.
+- Makes the Stabilization Amount response substantially stronger; 70% uses >95% correction gain to its adaptive target.
+- Preserves deliberate fast turns by reducing smoothing time at high angular velocity.
+- Uses quaternion SLERP from raw/stable native trajectories to each exposure time.
+- Reports IMU rate, raw/stable velocity, correction-angle statistics and DJI high-rate synchronization diagnostics per Clip.
+- Project schema v5 records `adaptive-highrate-v1`.
+- Keeps 0% as horizon-only behavior.
+
+## 0.29.0
+
+- Adds persisted Project-wide Stabilization Amount (0..100%).
+- Upgrades Project schema to v4; older Projects migrate to 0% for compatibility.
+- Adds centered full-orientation quaternion smoothing and 3-axis gyro correction.
+- Composes motion stabilization with existing horizon leveling.
+- Adds an undoable Stabilization slider to the Project Organizer.
+- Preview cache, Project Preview, Clip Editor preview preparation, and final export use the saved amount.
+- Adds optional `--stabilization-amount 0..100` export override.
+
 ## 0.28.0
 
 - Adds an experimental direct dual-lens final-render pipeline.

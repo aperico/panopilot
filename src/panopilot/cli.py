@@ -522,9 +522,19 @@ def _cmd_project_export(args):
         level_smoothing_ms=(
             args.level_smoothing_ms
         ),
+        stabilization_amount=(
+            args.stabilization_amount / 100.0
+            if args.stabilization_amount is not None else None
+        ),
         imu_source=args.imu_source,
         imu_offset_ms=(
             args.imu_offset_ms
+        ),
+        output_resolution=(
+            args.resolution
+        ),
+        output_quality=(
+            args.quality
         ),
         crf=args.crf,
         preset=args.preset,
@@ -537,6 +547,39 @@ def _cmd_project_export(args):
         ),
         render_pipeline=(
             args.render_pipeline
+        ),
+        visual_stabilization=(
+            args.visual_stabilization
+        ),
+        visual_stabilization_mode=(
+            args.visual_stabilization_mode
+        ),
+        stabilization_crop_percent=(
+            args.stabilization_crop
+        ),
+        extreme_stabilization_passes=(
+            args.extreme_stabilization_passes
+        ),
+        locked_stabilization_passes=(
+            args.locked_stabilization_passes
+        ),
+        spherical_local_mesh=(
+            args.spherical_local_mesh
+        ),
+        rolling_shutter_mode=(
+            args.rolling_shutter
+        ),
+        rolling_shutter_readout_ms=(
+            args.rolling_shutter_readout_ms
+        ),
+        rolling_shutter_reference_offset_ms=(
+            args.rolling_shutter_reference_offset_ms
+        ),
+        rolling_shutter_direction=(
+            args.rolling_shutter_direction
+        ),
+        rolling_shutter_analysis_width=(
+            args.rolling_shutter_analysis_width
         ),
         progress_callback=progress,
     )
@@ -1069,6 +1112,15 @@ def build_parser():
         default=100.0,
     )
     project_export.add_argument(
+        "--stabilization-amount",
+        type=float,
+        default=None,
+        help=(
+            "Adaptive high-rate gyro stabilization override in percent 0..100; "
+            "default uses the saved Project setting"
+        ),
+    )
+    project_export.add_argument(
         "--imu-source",
         choices=("highrate", "perframe"),
         default="highrate",
@@ -1079,15 +1131,45 @@ def build_parser():
         default=0.0,
     )
     project_export.add_argument(
+        "--resolution",
+        choices=(
+            "720p",
+            "1080p",
+        ),
+        default=None,
+        help=(
+            "Final video size override. Default uses the saved Project "
+            "setting (720p or 1080p)."
+        ),
+    )
+    project_export.add_argument(
+        "--quality",
+        choices=(
+            "standard",
+            "high",
+            "very-high",
+        ),
+        default=None,
+        help=(
+            "H.264 quality override. Default uses the saved Project setting."
+        ),
+    )
+    project_export.add_argument(
         "--crf",
         type=int,
-        default=18,
-        help="libx264 quality (default: 18)",
+        default=None,
+        help=(
+            "Advanced libx264 CRF override (0..51). Default derives from "
+            "the selected quality preset."
+        ),
     )
     project_export.add_argument(
         "--preset",
-        default="medium",
-        help="libx264 preset (default: medium)",
+        default=None,
+        help=(
+            "Advanced libx264 speed preset override. Default derives from "
+            "the selected quality preset."
+        ),
     )
     project_export.add_argument(
         "--decoder",
@@ -1117,6 +1199,117 @@ def build_parser():
         help=(
             "Final image pipeline: accepted panorama baseline or experimental "
             "direct dual-lens renderer (default: panorama)"
+        ),
+    )
+    project_export.add_argument(
+        "--rolling-shutter",
+        choices=(
+            "auto",
+            "off",
+            "manual",
+        ),
+        default="auto",
+        help=(
+            "Source-lens rolling-shutter rectification. Auto calibrates signed "
+            "sensor readout time from the actual OSV + gyro + Project view; "
+            "off disables it; manual uses --rolling-shutter-readout-ms "
+            "(default: auto)"
+        ),
+    )
+    project_export.add_argument(
+        "--rolling-shutter-readout-ms",
+        type=float,
+        default=None,
+        help=(
+            "Manual full-frame sensor readout duration in milliseconds. "
+            "Used only with --rolling-shutter manual."
+        ),
+    )
+    project_export.add_argument(
+        "--rolling-shutter-reference-offset-ms",
+        type=float,
+        default=0.0,
+        help=(
+            "Manual timing offset between the frame/gyro anchor and sensor "
+            "readout midpoint in milliseconds. Auto mode estimates this."
+        ),
+    )
+    project_export.add_argument(
+        "--rolling-shutter-direction",
+        choices=(
+            "top-to-bottom",
+            "bottom-to-top",
+        ),
+        default="top-to-bottom",
+        help=(
+            "Manual sensor scan direction (default: top-to-bottom)"
+        ),
+    )
+    project_export.add_argument(
+        "--rolling-shutter-analysis-width",
+        type=int,
+        default=640,
+        help=(
+            "Analysis width used by automatic readout calibration "
+            "(default: 640)"
+        ),
+    )
+    project_export.add_argument(
+        "--visual-stabilization",
+        action="store_true",
+        help=(
+            "Experimental optical-flow residual stabilization after gyro "
+            "stabilization; uses crop reserve to remove remaining bobbing/jitter"
+        ),
+    )
+    project_export.add_argument(
+        "--visual-stabilization-mode",
+        choices=(
+            "spherical",
+            "anchored",
+            "standard",
+            "extreme",
+            "locked",
+        ),
+        default="spherical",
+        help=(
+            "Residual stabilizer: spherical rigid 3-axis 360 visual lock "
+            "(recommended), anchored mesh, standard, extreme, or locked "
+            "(default: spherical)"
+        ),
+    )
+    project_export.add_argument(
+        "--spherical-local-mesh",
+        action="store_true",
+        help=(
+            "Opt in to a small post-spherical local residual mesh. Disabled "
+            "by default because flexible warps can re-introduce walking wobble."
+        ),
+    )
+    project_export.add_argument(
+        "--stabilization-crop",
+        type=float,
+        default=25.0,
+        help=(
+            "Residual stabilization crop. Pure spherical mode needs no crop; "
+            "the value is used only if --spherical-local-mesh is enabled. "
+            "Anchored supports 0..35; standard 0..40; extreme/locked 0..60."
+        ),
+    )
+    project_export.add_argument(
+        "--extreme-stabilization-passes",
+        type=int,
+        default=3,
+        help=(
+            "Extreme residual-analysis passes, 1..4 (default: 3)"
+        ),
+    )
+    project_export.add_argument(
+        "--locked-stabilization-passes",
+        type=int,
+        default=2,
+        help=(
+            "Locked translation-only residual passes, 1..3 (default: 2)"
         ),
     )
     project_export.add_argument(
@@ -1694,6 +1887,37 @@ def main():
         if hasattr(args, "level_smoothing_ms"):
             if args.level_smoothing_ms < 0.0:
                 raise ValueError("--level-smoothing-ms must be >= 0")
+        if hasattr(args, "stabilization_amount"):
+            if (args.stabilization_amount is not None and
+                    not 0.0 <= args.stabilization_amount <= 100.0):
+                raise ValueError("--stabilization-amount must be between 0 and 100")
+        if hasattr(args, "stabilization_crop"):
+            mode = getattr(
+                args,
+                "visual_stabilization_mode",
+                "standard",
+            )
+            max_crop = (
+                60.0
+                if mode in (
+                    "extreme",
+                    "locked",
+                )
+                else (
+                    35.0
+                    if mode
+                    in (
+                        "anchored",
+                        "spherical",
+                    )
+                    else 40.0
+                )
+            )
+            if not 0.0 <= args.stabilization_crop <= max_crop:
+                raise ValueError(
+                    "--stabilization-crop must be between 0 and "
+                    f"{max_crop:.0f} for {mode} mode"
+                )
 
         args.func(args)
 

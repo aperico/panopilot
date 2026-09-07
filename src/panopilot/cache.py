@@ -38,6 +38,9 @@ class PreviewProfile:
     level_horizon: bool = True
     level_strength: float = 1.0
     level_smoothing_ms: float = 100.0
+    stabilization_amount: float = 0.0
+    stabilization_smoothing_ms: float = 400.0
+    stabilization_algorithm: str = "adaptive-highrate-v1"
     imu_source: str = "highrate"
     imu_offset_ms: float = 0.0
     with_audio: bool = True
@@ -413,6 +416,8 @@ def ensure_preview_cache(
             level_horizon=profile.level_horizon,
             level_strength=profile.level_strength,
             level_smoothing_ms=profile.level_smoothing_ms,
+            stabilization_amount=profile.stabilization_amount,
+            stabilization_smoothing_ms=profile.stabilization_smoothing_ms,
             imu_source=profile.imu_source,
             imu_offset_ms=profile.imu_offset_ms,
             use_actual_video_pts=True,

@@ -1,7 +1,7 @@
 # PanoPilot — Documentation Change Summary
 
 Status: Updated  
-Release alignment: PanoPilot 0.28.0
+Release alignment: PanoPilot 0.37.0
 Date: 2026-09-06
 
 ## Documents
@@ -155,3 +155,90 @@ unimplemented end-to-end capability.
 - experimental direct dual-lens-to-delivery-frame renderer;
 - no full intermediate panorama in direct mode;
 - explicit accepted-baseline versus experimental render-pipeline selection.
+
+
+## PanoPilot 0.29 additions
+
+- Project schema v4 with Stabilization Amount;
+- adjustable 3-axis gyro shake correction plus horizon leveling;
+- zero-phase quaternion smoothing;
+- Project Organizer slider and preview/final semantic alignment.
+
+
+## PanoPilot 0.30 additions
+
+- native-rate adaptive quaternion stabilization;
+- velocity-sensitive smoothing;
+- exact exposure-time SLERP;
+- stronger stabilization response;
+- schema v5 algorithm identity and detailed diagnostics.
+
+
+## PanoPilot 0.31 additions
+- opt-in hybrid gyro + visual residual stabilization;
+- KLT/RANSAC image-motion estimation;
+- clip-boundary-aware path smoothing;
+- crop-constrained final affine correction.
+
+
+## PanoPilot 0.32 additions
+
+- explicit Extreme visual-stabilization mode;
+- iterative residual re-analysis rather than single-pass path filtering;
+- forward/backward KLT validation and high-confidence RANSAC;
+- translation/rotation/scale residual correction;
+- crop reserve up to 60% in Extreme mode;
+- one final full-resolution image warp despite multiple analysis passes.
+
+
+## PanoPilot 0.33 additions
+
+- Locked translation-only residual stabilization;
+- no visual rotation or scale correction in Locked mode;
+- per-Clip global crop feasibility instead of per-frame crop clipping;
+- robust low-order camera path;
+- corrected 60% Extreme/Locked crop CLI validation.
+
+
+## PanoPilot 0.34 additions
+
+- anchored spatially-variant residual mesh;
+- keyframe-regularized local deformation;
+- bundled global/local camera-path smoothing;
+- minimum-required crop under a User-defined maximum budget;
+- removal of scale/zoom wobble from the recommended residual path.
+
+
+## 0.34 stabilization architecture correction
+
+- dominant visual walking correction moved from post-frame translation/crop into
+  the virtual camera on the captured 360 sphere;
+- second original-source render consumes visual camera offsets;
+- post-render mesh is residual/local only and capped to a small crop budget.
+
+
+## PanoPilot 0.35 additions
+
+- rigid 3-axis spherical visual lock (yaw/pitch/roll);
+- robust separation of visual rotation from center translation;
+- visual scale explicitly treated as diagnostic-only nuisance motion;
+- automatic post-spherical local mesh removed from the default path;
+- crop-free spherical residual stabilization permitted;
+- spatial rotation-disagreement diagnostics for rolling-shutter/parallax gating.
+
+
+## PanoPilot 0.36 additions
+
+- source-sensor row-time gyro rectification for direct rendering;
+- automatic signed rolling-shutter readout calibration;
+- automatic frame/gyro-anchor versus sensor-readout-midpoint offset fitting;
+- source-row iterative inverse mapping;
+- spatial-coherence gating of visual roll authority.
+
+
+## PanoPilot 0.37 additions
+
+- Project-level 720p / 1080p final output size;
+- Standard / High / Very High H.264 quality presets;
+- schema-v6 persistence and legacy migration to 1080p / High;
+- Organizer controls and CLI export overrides.

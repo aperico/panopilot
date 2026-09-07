@@ -2690,6 +2690,7 @@ def explore_osv(
             level_horizon=bool(level_horizon),
             level_strength=float(level_strength),
             level_smoothing_ms=float(level_smoothing_ms),
+            stabilization_amount=float(session.project.stabilization_amount),
             imu_source=str(imu_source),
             imu_offset_ms=float(imu_offset_ms),
             with_audio=True,
@@ -2881,6 +2882,7 @@ def explore_osv(
             "camera_motion_strength": float(
                 session.project.camera_motion_strength
             ),
+            "stabilization_amount": float(session.project.stabilization_amount),
             **trim_state(),
         }
 

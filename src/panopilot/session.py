@@ -236,6 +236,46 @@ class ProjectSession:
             mutate,
         )
 
+    def set_output_resolution(self, resolution):
+        def mutate(project):
+            previous = str(
+                project.output_resolution
+            )
+            current = project.set_output_resolution(
+                resolution
+            )
+            return {
+                "previous_resolution": previous,
+                "resolution": current[
+                    "resolution"
+                ],
+            }
+
+        return self.transact(
+            "Output resolution",
+            mutate,
+        )
+
+    def set_output_quality(self, quality):
+        def mutate(project):
+            previous = str(
+                project.output_quality
+            )
+            current = project.set_output_quality(
+                quality
+            )
+            return {
+                "previous_quality": previous,
+                "quality": current[
+                    "quality"
+                ],
+            }
+
+        return self.transact(
+            "Export quality",
+            mutate,
+        )
+
     def set_camera_motion(
         self,
         *,
@@ -267,6 +307,18 @@ class ProjectSession:
             "Camera motion",
             mutate,
         )
+
+    def set_stabilization_amount(self, amount):
+        def mutate(project):
+            previous = float(project.stabilization_amount)
+            current = project.set_stabilization_amount(amount)
+            return {
+                "previous_stabilization_amount": previous,
+                "stabilization_amount": float(current["amount"]),
+            }
+
+        return self.transact("Stabilization", mutate)
+
 
     def delete_camera_position_from_clip(
         self,

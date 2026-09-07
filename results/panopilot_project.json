@@ -1,11 +1,17 @@
 {
-  "schema_version": 3,
+  "schema_version": 6,
   "output_frame": {
-    "aspect": "16:9"
+    "aspect": "16:9",
+    "resolution": "1080p",
+    "quality": "very-high"
   },
   "camera_motion": {
     "easing": "smooth",
     "strength": 1.0
+  },
+  "stabilization": {
+    "amount": 0.0,
+    "algorithm": "adaptive-highrate-v1"
   },
   "clips": [
     {
@@ -15,7 +21,26 @@
         "in_source_time": 0.0,
         "out_source_time": null
       },
-      "camera_positions": []
+      "camera_positions": [
+        {
+          "source_time": 1.35,
+          "yaw_deg": 90.95097656249993,
+          "pitch_deg": 2.4263671874999995,
+          "fov_deg": 120.0
+        },
+        {
+          "source_time": 2.2,
+          "yaw_deg": -100.16484375000016,
+          "pitch_deg": -25.58613281249999,
+          "fov_deg": 120.0
+        },
+        {
+          "source_time": 4.0,
+          "yaw_deg": 126.98613281250016,
+          "pitch_deg": -10.73261718749999,
+          "fov_deg": 120.0
+        }
+      ]
     },
     {
       "id": "clip-2",

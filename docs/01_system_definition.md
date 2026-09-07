@@ -1,7 +1,7 @@
 # PanoPilot — System Definition
 
 Status: Draft  
-Baseline: SD-0.17
+Baseline: SD-0.23
 Scope: Iteration 1
 
 ---
@@ -1207,3 +1207,102 @@ Camera state, horizon state, and projection geometry remain unchanged.
 # 29. Direct Final Rendering — PanoPilot 0.28
 
 PanoPilot contains an accepted `panorama` final renderer and an experimental `direct` renderer. The direct renderer composes the dynamic Camera/horizon sampling map with static factory calibration maps and samples both original lens frames directly at delivery resolution. It is not authoritative until representative visual/performance acceptance is complete.
+
+
+---
+
+# 30. Adjustable Motion Stabilization — PanoPilot 0.29
+
+Stabilization is a Project-level property separate from Camera Motion easing. It controls correction of physical camera motion derived from DJI orientation telemetry. 0% preserves horizon-only behavior; values above zero correct raw 3-axis orientation toward a centered smoothed trajectory before horizon leveling.
+
+
+---
+
+# 31. High-Precision Gyro Stabilization — PanoPilot 0.30
+
+Stabilization authority is the native timed DJI orientation trajectory, not the Output Profile frame cadence. PanoPilot filters orientation before downsampling to exposure times. Angular velocity varies the quaternion smoothing time constant: long for shake rejection and shorter during sustained fast intentional turns.
+
+
+---
+# 32. Hybrid Residual Stabilization — PanoPilot 0.31
+Gyro stabilization remains responsible for 3-axis camera rotation. An opt-in final-render visual stage removes residual 2D translation and small rotation using robust feature tracking and a bounded crop reserve.
+
+---
+
+# 31. Extreme Residual Stabilization — PanoPilot 0.32
+
+PanoPilot distinguishes standard residual stabilization from Extreme
+stabilization.
+
+Extreme stabilization is an offline, crop-backed mode intended for footage
+where image steadiness has priority over preserving the complete conventional
+frame.
+
+It iteratively measures residual image motion after applying the previously
+estimated correction. The final delivery frame is generated with the composed
+correction in one image warp followed by the configured fixed crop.
+
+
+---
+
+# 32. Locked Stabilization — PanoPilot 0.33
+
+Locked stabilization is a rigid anti-wobble mode. High-rate gyro stabilization
+owns orientation. The image-space residual stage may correct translation but
+shall not introduce visual scale or rotation changes. Crop feasibility is
+resolved at Clip/pass scope so correction strength does not pulse frame by
+frame.
+
+---
+
+# 32. Anchored Residual Stabilization — PanoPilot 0.34
+
+Walking footage is treated as a spatially-variant residual-motion problem after
+gyro stabilization. PanoPilot uses a coarse residual mesh rather than assuming
+that foreground, background, rolling-shutter residual and stitching residual
+share one global image transform.
+
+Local mesh deformation is periodically anchored to the gyro-backed frame
+geometry. The anchor is a regularization mechanism and not a hard frame reset.
+
+
+---
+
+# 33. Rigid Three-Axis Visual Sphere Lock — PanoPilot 0.35
+
+Visual residual stabilization on a 360 source includes yaw, pitch, and roll.
+The global visual model shall remain rigid: image-space scale is not an
+authoritative stabilization degree of freedom.
+
+The default spherical path re-renders the corrected Virtual Camera directly
+from the original 360 source and does not automatically add a flexible local
+mesh. This separates global rotational stability from spatial-deformation
+experiments and reduces wobble risk.
+
+---
+
+# 34. Rolling-Shutter Stabilization — PanoPilot 0.36
+
+PanoPilot distinguishes inter-frame stabilization from intra-frame
+rolling-shutter rectification.
+
+Inter-frame stabilization defines a desired synthetic camera trajectory.
+Rolling-shutter rectification maps each original fisheye sensor row from its
+actual DJI BODY→WORLD orientation to the synthetic frame reference
+orientation.
+
+For direct final rendering, row-time rectification occurs before source-lens
+sampling. The resulting conventional frame therefore represents a synthetic
+global-shutter camera more closely than a frame-level rotation alone.
+
+Automatic readout calibration is source/Clip specific and may select zero
+readout when the visual evidence does not support a non-zero correction.
+
+
+---
+
+# 35. Final Delivery Options — PanoPilot 0.37
+
+Final conventional video is constrained to 720p or 1080p at 30 fps. The saved
+Project Output Frame includes aspect, resolution class, and quality preset.
+Preview/cache geometry is not the final delivery geometry.

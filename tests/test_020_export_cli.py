@@ -30,5 +30,7 @@ def test_project_export_defaults():
     assert args.output == "results/panopilot_export.mp4"
     assert args.panorama_width == 3840
     assert args.panorama_height == 1920
-    assert args.crf == 18
-    assert args.preset == "medium"
+    assert args.crf is None
+    assert args.preset is None
+    assert args.resolution is None
+    assert args.quality is None

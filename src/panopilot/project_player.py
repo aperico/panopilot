@@ -267,6 +267,7 @@ def prepare_project_preview(
             preview_fps
         ),
         with_audio=True,
+        stabilization_amount=float(project.stabilization_amount),
     )
 
     entries = {}

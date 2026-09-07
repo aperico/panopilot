@@ -1,7 +1,7 @@
 """
 PanoPilot project model.
 
-Project schema v3 adds persisted Camera Motion easing settings while
+Project schema v6 records final export resolution/quality while v5 records the high-rate adaptive stabilization algorithm; v4 added persisted gyro stabilization amount while v3 added Camera Motion easing settings while
 preserving the schema-v2 continuous trim range per Clip and
 preserving the fundamental reframing invariant:
 
@@ -11,7 +11,7 @@ preserving the fundamental reframing invariant:
 A Camera Position outside the active trim remains persisted and becomes
 dormant. Expanding the trim later can make it active again.
 
-Schema v1/v2 projects are upgraded in memory automatically and are written as v3
+Schema v1/v2/v3/v4/v5 projects are upgraded in memory automatically and are written as v6
 on their next explicit Save.
 """
 from __future__ import annotations
@@ -25,9 +25,16 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from .output_profile import (
+    DEFAULT_OUTPUT_QUALITY,
+    DEFAULT_OUTPUT_RESOLUTION,
+    OUTPUT_QUALITIES,
+    OUTPUT_RESOLUTIONS,
+)
 
-SCHEMA_VERSION = 3
-SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3)
+
+SCHEMA_VERSION = 6
+SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6)
 TIME_MATCH_TOLERANCE_S = 1e-6
 
 CAMERA_MOTION_EASINGS = (
@@ -39,6 +46,8 @@ CAMERA_MOTION_EASINGS = (
 )
 DEFAULT_CAMERA_MOTION_EASING = "smooth"
 DEFAULT_CAMERA_MOTION_STRENGTH = 1.0
+DEFAULT_STABILIZATION_AMOUNT = 0.0
+DEFAULT_STABILIZATION_ALGORITHM = "adaptive-highrate-v1"
 
 PROJECT_BACKUP_SCHEMA_VERSION = 1
 PROJECT_BACKUP_KEEP = 25
@@ -212,20 +221,57 @@ class Clip:
 @dataclass
 class Project:
     output_aspect: str = "16:9"
+    output_resolution: str = DEFAULT_OUTPUT_RESOLUTION
+    output_quality: str = DEFAULT_OUTPUT_QUALITY
     clips: list[Clip] = field(default_factory=list)
     camera_motion_easing: str = DEFAULT_CAMERA_MOTION_EASING
     camera_motion_strength: float = DEFAULT_CAMERA_MOTION_STRENGTH
+    stabilization_amount: float = DEFAULT_STABILIZATION_AMOUNT
+    stabilization_algorithm: str = DEFAULT_STABILIZATION_ALGORITHM
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self):
         if self.output_aspect not in ("16:9", "9:16"):
             raise ValueError("output_aspect must be '16:9' or '9:16'")
 
+        self.set_output_resolution(
+            self.output_resolution
+        )
+        self.set_output_quality(
+            self.output_quality
+        )
+
         self.set_camera_motion(
             easing=self.camera_motion_easing,
             strength=self.camera_motion_strength,
         )
+        self.set_stabilization_amount(self.stabilization_amount)
+        self.stabilization_algorithm = str(self.stabilization_algorithm)
+        if self.stabilization_algorithm != DEFAULT_STABILIZATION_ALGORITHM:
+            raise ValueError("Unsupported stabilization algorithm")
         self.schema_version = SCHEMA_VERSION
+
+    def set_output_resolution(self, resolution):
+        resolution = str(resolution).lower()
+        if resolution not in OUTPUT_RESOLUTIONS:
+            raise ValueError(
+                "output resolution must be 720p or 1080p"
+            )
+        self.output_resolution = resolution
+        return {
+            "resolution": resolution,
+        }
+
+    def set_output_quality(self, quality):
+        quality = str(quality).lower()
+        if quality not in OUTPUT_QUALITIES:
+            raise ValueError(
+                "output quality must be standard, high, or very-high"
+            )
+        self.output_quality = quality
+        return {
+            "quality": quality,
+        }
 
     def set_camera_motion(self, *, easing=None, strength=None):
         easing = (
@@ -257,6 +303,13 @@ class Project:
             "easing": easing,
             "strength": strength,
         }
+
+    def set_stabilization_amount(self, amount):
+        amount = float(amount)
+        if not 0.0 <= amount <= 1.0:
+            raise ValueError("stabilization amount must be between 0 and 1")
+        self.stabilization_amount = amount
+        return {"amount": amount}
 
     def clip_for_id(self, clip_id):
         clip_id = str(clip_id)
@@ -395,12 +448,20 @@ class Project:
     def to_dict(self):
         return {
             "schema_version": SCHEMA_VERSION,
-            "output_frame": {"aspect": self.output_aspect},
+            "output_frame": {
+                "aspect": self.output_aspect,
+                "resolution": self.output_resolution,
+                "quality": self.output_quality,
+            },
             "camera_motion": {
                 "easing": self.camera_motion_easing,
                 "strength": float(
                     self.camera_motion_strength
                 ),
+            },
+            "stabilization": {
+                "amount": float(self.stabilization_amount),
+                "algorithm": str(self.stabilization_algorithm),
             },
             "clips": [clip.to_dict() for clip in self.clips],
         }
@@ -415,9 +476,26 @@ class Project:
             )
         output_frame = data.get("output_frame", {})
         camera_motion = data.get("camera_motion") or {}
+        stabilization = data.get("stabilization") or {}
 
         return cls(
             output_aspect=str(output_frame.get("aspect", "16:9")),
+            output_resolution=str(
+                output_frame.get(
+                    "resolution",
+                    DEFAULT_OUTPUT_RESOLUTION,
+                )
+                if version >= 6
+                else DEFAULT_OUTPUT_RESOLUTION
+            ),
+            output_quality=str(
+                output_frame.get(
+                    "quality",
+                    DEFAULT_OUTPUT_QUALITY,
+                )
+                if version >= 6
+                else DEFAULT_OUTPUT_QUALITY
+            ),
             clips=[Clip.from_dict(clip) for clip in data.get("clips", [])],
             camera_motion_easing=str(
                 camera_motion.get(
@@ -430,6 +508,17 @@ class Project:
                     "strength",
                     DEFAULT_CAMERA_MOTION_STRENGTH,
                 )
+            ),
+            stabilization_amount=float(
+                stabilization.get("amount", DEFAULT_STABILIZATION_AMOUNT)
+            ),
+            stabilization_algorithm=str(
+                stabilization.get(
+                    "algorithm",
+                    DEFAULT_STABILIZATION_ALGORITHM,
+                )
+                if version >= 5
+                else DEFAULT_STABILIZATION_ALGORITHM
             ),
             schema_version=SCHEMA_VERSION,
         )

@@ -246,6 +246,102 @@ def smooth_unit_vectors_centered(vectors, sigma_frames):
     return out / norms
 
 
+
+def smooth_quaternions_centered(quaternions, sigma_frames):
+    """Zero-phase Gaussian smoothing for BODY->WORLD unit quaternions."""
+    quaternions = np.asarray(quaternions, dtype=np.float64)
+    if quaternions.ndim != 2 or quaternions.shape[1] != 4:
+        raise ValueError("Expected an Nx4 quaternion sequence")
+    if len(quaternions) == 0:
+        return quaternions.copy()
+
+    normalized = quaternions.copy()
+    norms = np.linalg.norm(normalized, axis=1, keepdims=True)
+    norms = np.where(norms < 1e-12, 1.0, norms)
+    normalized /= norms
+
+    # q and -q encode the same orientation. Keep temporal sign continuity
+    # before filtering so component averaging does not cancel valid samples.
+    for index in range(1, len(normalized)):
+        if float(np.dot(normalized[index - 1], normalized[index])) < 0.0:
+            normalized[index] *= -1.0
+
+    sigma_frames = float(sigma_frames)
+    if sigma_frames <= 1e-9:
+        return normalized
+
+    radius = max(1, int(math.ceil(3.0 * sigma_frames)))
+    x = np.arange(-radius, radius + 1, dtype=np.float64)
+    kernel = np.exp(-0.5 * (x / sigma_frames) ** 2)
+    kernel /= kernel.sum()
+    padded = np.pad(normalized, ((radius, radius), (0, 0)), mode="edge")
+    out = np.column_stack([
+        np.convolve(padded[:, component], kernel, mode="valid")
+        for component in range(4)
+    ])
+    norms = np.linalg.norm(out, axis=1, keepdims=True)
+    norms = np.where(norms < 1e-12, 1.0, norms)
+    return out / norms
+
+
+def stabilization_correction(raw_quaternion, smoothed_quaternion, amount=1.0):
+    """
+    3-axis CONTENT rotation from instantaneous camera orientation toward a
+    centered smoothed trajectory. Amount 0 is identity; 1 is full correction.
+    """
+    amount = max(0.0, min(1.0, float(amount)))
+    if amount <= 1e-9:
+        return np.eye(3, dtype=np.float64)
+
+    # 0.29 used a linear correction gain. For stabilization control this felt
+    # too weak in the middle of the slider (70% left 30% of the measured
+    # shake). 0.30 maps the User amount to a gimbal-like gain while the
+    # adaptive trajectory itself also changes with amount.
+    amount = 1.0 - (1.0 - amount) ** 3
+
+    raw = quat_to_matrix(raw_quaternion)
+    smooth = quat_to_matrix(smoothed_quaternion)
+    full = (
+        IMU_TO_FACTORY_EQUIRECT
+        @ smooth.T
+        @ raw
+        @ IMU_TO_FACTORY_EQUIRECT.T
+    )
+    return rotation_strength(full, amount)
+
+
+def stabilized_horizon_rotation(
+    *, raw_quaternion, smoothed_quaternion, leveled_gravity=None,
+    stabilization_amount=0.0, level_horizon=True, level_strength=1.0,
+):
+    """
+    Compose full-orientation shake suppression with horizon leveling.
+
+    Compatibility invariant: stabilization_amount == 0 reproduces the prior
+    horizon-only correction.
+    """
+    stabilization = stabilization_correction(
+        raw_quaternion, smoothed_quaternion, amount=stabilization_amount
+    )
+    if not level_horizon:
+        return stabilization, {
+            "stabilization_amount": float(stabilization_amount),
+            "level_horizon": False,
+        }
+    if leveled_gravity is None:
+        raise ValueError("leveled_gravity is required when level_horizon is enabled")
+
+    stabilized_gravity = stabilization @ np.asarray(leveled_gravity, dtype=np.float64)
+    horizon, diagnostics = horizon_correction_from_gravity(
+        stabilized_gravity, strength=level_strength
+    )
+    return horizon @ stabilization, {
+        **diagnostics,
+        "stabilization_amount": float(stabilization_amount),
+        "level_horizon": True,
+    }
+
+
 def horizon_correction(quaternion, strength=1.0):
     """
     Return (rotation_matrix, diagnostics) from one DJI quaternion.

@@ -1,7 +1,7 @@
 # PanoPilot — System Requirements
 
 Status: Draft  
-Baseline: SYS-0.19
+Baseline: SYS-0.25
 Scope: Iteration 1  
 Parent: `01_system_definition.md`  
 Use Cases: `02_use_cases.md`
@@ -1669,3 +1669,305 @@ Until direct-render acceptance is complete, PanoPilot shall retain the panorama 
 
 **Priority:** MUST  
 **Verification:** Inspection
+
+
+---
+
+# 35. Stabilization Requirements — PanoPilot 0.29
+
+## SYS-STAB-001 — Persisted Amount
+PanoPilot shall persist stabilization amount in [0,1]. **Priority:** MUST  **Verification:** Test
+
+## SYS-STAB-002 — Legacy Compatibility
+Pre-v4 Projects shall migrate with amount 0.0. **Priority:** MUST  **Verification:** Test
+
+## SYS-STAB-003 — 3-Axis Shake Correction
+For amount >0, PanoPilot shall correct yaw/pitch/roll toward a centered smoothed orientation trajectory. **Priority:** MUST  **Verification:** Test
+
+## SYS-STAB-004 — Zero-Amount Equivalence
+At amount 0, horizon correction shall preserve the previous horizon-only semantics. **Priority:** MUST  **Verification:** Test
+
+## SYS-STAB-005 — Preview/Final Consistency
+Preview-cache generation and final export shall consume the same saved Project amount. **Priority:** MUST  **Verification:** Test
+
+
+---
+
+# 36. High-Precision Stabilization Requirements — PanoPilot 0.30
+
+## SYS-STAB-006 — Native-Rate Trajectory Stabilization
+When high-rate timed DJI orientation is available, PanoPilot shall compute the stable trajectory before resampling to Output Profile frame times.
+
+**Priority:** MUST  
+**Verification:** Test
+
+## SYS-STAB-007 — Velocity-Adaptive Smoothing
+The trajectory filter shall apply stronger smoothing to low/medium angular velocity than to sustained high angular velocity.
+
+**Priority:** MUST  
+**Verification:** Test
+
+## SYS-STAB-008 — Exposure-Time Quaternion Sampling
+PanoPilot shall sample raw and stabilized orientation trajectories at each selected video exposure time using spherical quaternion interpolation.
+
+**Priority:** MUST  
+**Verification:** Test
+
+## SYS-STAB-009 — Stabilization Diagnostics
+Final export shall report algorithm identity, IMU sample rate, raw/stable velocity statistics, correction-angle statistics, and synchronization method per Clip.
+
+**Priority:** SHOULD  
+**Verification:** Test
+
+
+---
+# 37. Visual Residual Stabilization Requirements — PanoPilot 0.31
+## SYS-STAB-011 — Robust Visual Motion Estimate
+When enabled, PanoPilot shall estimate consecutive-frame image motion using tracked visual features and a robust outlier-rejecting similarity model.
+
+**Priority:** MUST  
+**Verification:** Test
+
+## SYS-STAB-012 — Clip Boundary Reset
+Visual stabilization shall reset its cumulative motion path at every Project Clip boundary.
+
+**Priority:** MUST  
+**Verification:** Test
+
+## SYS-STAB-013 — Crop Inclusion Constraint
+The visual correction shall be reduced when necessary so the configured center crop remains covered by transformed source pixels.
+
+**Priority:** MUST  
+**Verification:** Test
+
+---
+
+# 36. Extreme Stabilization Requirements — PanoPilot 0.32
+
+## SYS-STAB-006 — Iterative Residual Measurement
+
+When Extreme visual stabilization is selected, PanoPilot shall re-estimate
+residual visual motion after at least one preceding stabilization correction.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-STAB-007 — Forward/Backward Track Validation
+
+Extreme visual stabilization shall reject optical-flow tracks whose
+forward/backward round-trip error exceeds the configured acceptance threshold.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-STAB-008 — Extreme Crop Reserve
+
+Extreme visual stabilization shall accept a linear crop reserve from 0 through
+60 percent.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-STAB-009 — Single Final Image Warp
+
+Multiple Extreme analysis passes shall compose their corrections before final
+delivery-frame rendering so the full-resolution image is warped once.
+
+**Priority:** MUST  
+**Verification:** Inspection, Test
+
+
+---
+
+# 37. Locked Stabilization Requirements — PanoPilot 0.33
+
+## SYS-STAB-010 — Locked Translation-Only Residual
+
+When Locked visual stabilization is selected, PanoPilot shall not apply visual
+rotation or scale correction after gyro stabilization.
+
+**Priority:** MUST  
+**Verification:** Test
+
+## SYS-STAB-011 — Temporally Constant Crop Constraint
+
+Within one Clip and Locked stabilization pass, crop feasibility shall be
+satisfied with one correction gain for the complete Clip rather than
+independent per-frame correction clipping.
+
+**Priority:** MUST  
+**Verification:** Test
+
+---
+
+# 37. Anchored Residual Stabilization Requirements — PanoPilot 0.34
+
+## SYS-STAB-010 — Spatially Variant Residual Motion
+
+The recommended visual residual stabilizer shall represent residual image
+motion with multiple spatial control points rather than one full-frame affine
+transform.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-STAB-011 — Local Deformation Anchoring
+
+The visual residual stabilizer shall periodically constrain local deformation
+back to the gyro-backed frame geometry with temporally smooth anchors.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-STAB-012 — Crop Budget Semantics
+
+For anchored stabilization, the configured crop percentage shall represent the
+maximum permitted crop. PanoPilot shall use the minimum static crop required by
+the accepted correction when it is less than that maximum.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-STAB-013 — No Per-Frame Crop Gain
+
+Anchored stabilization shall not vary stabilization gain independently from one
+frame to the next as a consequence of crop feasibility.
+
+**Priority:** MUST  
+**Verification:** Inspection, Test
+
+
+---
+
+# 38. Three-Axis Spherical Residual Requirements — PanoPilot 0.35
+
+## SYS-STAB-014 — Visual Roll Correction
+
+When spherical visual stabilization is enabled, PanoPilot shall estimate and
+correct high-frequency residual image roll in addition to horizontal and
+vertical visual motion.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-STAB-015 — No Visual Scale Authority
+
+The spherical global residual model shall not use fitted image scale as a
+stabilization control.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-STAB-016 — Crop-Free Spherical Global Correction
+
+Spherical global yaw/pitch/roll correction shall remain available when the
+configured residual crop is zero.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-STAB-017 — Rigid Spherical Default
+
+The spherical residual mode shall not apply a flexible local image mesh unless
+the User explicitly enables that optional stage.
+
+**Priority:** MUST  
+**Verification:** Inspection, Test
+
+---
+
+# 39. Rolling-Shutter Requirements — PanoPilot 0.36
+
+## SYS-STAB-018 — Source-Row Orientation
+
+When rolling-shutter rectification is enabled for direct rendering, PanoPilot
+shall derive source sampling orientation from the source lens row and the DJI
+high-rate orientation trajectory.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-STAB-019 — Signed Readout Calibration
+
+When automatic rolling-shutter calibration is selected, PanoPilot shall
+evaluate both top-to-bottom and bottom-to-top readout hypotheses within one
+source-frame period.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-STAB-020 — Timing-Offset Calibration
+
+Automatic rolling-shutter calibration shall permit the sensor-readout midpoint
+to differ from the frame/gyro timing anchor and shall estimate that bounded
+offset jointly with readout duration.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-STAB-021 — Zero-Readout Safety Baseline
+
+Automatic rolling-shutter calibration shall retain zero readout when no
+non-zero candidate improves the configured calibration score by at least the
+acceptance threshold.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-STAB-022 — Visual Roll Coherence
+
+When spatial image regions disagree on the measured visual roll, PanoPilot
+shall reduce visual roll authority while retaining gyro orientation authority.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+---
+
+# 40. Final Export Option Requirements — PanoPilot 0.37
+
+## SYS-OUT-001 — Final Resolution Classes
+
+The PanoPilot system shall provide final video resolution choices of 720p and
+1080p and shall not expose a lower or higher final resolution in this release.
+
+**Priority:** MUST  
+**Verification:** Test
+
+## SYS-OUT-002 — Aspect-Aware Dimensions
+
+When 720p or 1080p is selected, the PanoPilot system shall preserve the saved
+16:9 or 9:16 aspect using 1280×720 / 1920×1080 or their portrait transposes.
+
+**Priority:** MUST  
+**Verification:** Test
+
+## SYS-OUT-003 — Export Quality Presets
+
+The PanoPilot system shall provide Standard, High, and Very High H.264 quality
+presets and shall persist the selected preset in the Project.
+
+**Priority:** MUST  
+**Verification:** Test
+
+## SYS-OUT-004 — Legacy Output Equivalence
+
+When a schema-v1 through schema-v5 Project is opened, the PanoPilot system
+shall migrate its final output settings to 1080p and High quality.
+
+**Priority:** MUST  
+**Verification:** Test

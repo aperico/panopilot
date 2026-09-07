@@ -1,7 +1,7 @@
 # PanoPilot — Functional Architecture
 
 Status: Draft  
-Baseline: FA-0.13
+Baseline: FA-0.19
 Scope: Iteration 1  
 Parent: `01_system_definition.md`  
 Use Cases: `02_use_cases.md`  
@@ -1814,3 +1814,223 @@ Camera+horizon -> equirectangular output map -> compose factory lens maps
 ```
 
 Project Time, View Path, Camera Motion, horizon correction, decoder, audio, encoder and verification are shared with the accepted pipeline.
+
+
+---
+
+# 50. Stabilization Function Chain — PanoPilot 0.29
+
+```text
+DJI orientation -> Source-Time interpolation -> raw quaternions
+   -> centered quaternion smoothing -> raw-to-smoothed 3-axis delta
+   -> Amount -> transformed gravity -> horizon leveling -> content rotation
+```
+
+The same content rotation is consumed by panorama and direct final render pipelines.
+
+
+---
+
+# 51. Adaptive Native-Rate Stabilizer — PanoPilot 0.30
+
+```text
+DJI timed quaternions (~1 kHz)
+ → angular velocity
+ → adaptive bidirectional quaternion filter
+ → stable high-rate trajectory
+ → exposure-time SLERP
+ → 3-axis content correction + horizon leveling
+ → panorama/direct renderer
+```
+
+
+---
+# 52. Hybrid Gyro/Visual Final Stabilizer — PanoPilot 0.31
+```text
+canonical gyro-stabilized frame
+  ↓ KLT features / RANSAC similarity
+clip-local smooth image path
+  ↓ constrained affine correction
+center crop / resize
+  ↓ final encoder
+```
+
+---
+
+# 51. Extreme Stabilization Function Chain — PanoPilot 0.32
+
+```text
+gyro/direct render
+      ↓
+analysis pass 1 → similarity correction C1
+      ↓ virtual analysis warp
+analysis pass 2 → residual correction C2
+      ↓ virtual analysis warp
+analysis pass 3 → residual correction C3
+      ↓
+C = C3 · C2 · C1
+      ↓
+crop-feasibility constraint
+      ↓
+one delivery-resolution affine warp
+      ↓
+fixed crop + resize
+```
+
+Each analysis pass uses forward/backward KLT consistency and RANSAC to reduce
+contamination from moving scene content.
+
+
+---
+
+# 52. Locked Anti-Wobble Path — PanoPilot 0.33
+
+```text
+gyro-stabilized rendered Clip
+      ↓
+robust KLT/RANSAC center translation
+      ↓
+integrated translation path
+      ↓
+robust quadratic target path
+      ↓
+global per-Clip crop gain
+      ↓
+translation-only affine transform
+      ↓
+fixed crop + resize
+```
+
+No image-space rotation or scale correction is permitted in this mode.
+
+---
+
+# 52. Anchored Mesh Residual Function Chain — PanoPilot 0.34
+
+```text
+gyro/direct frame sequence
+      ↓
+KLT forward/backward correspondences
+      ↓
+coarse residual motion mesh
+      ↓ spatial regularization
+global mesh path + local vertex deviations
+      ↓
+offline temporal smoothing
+      ↓
+keyframe envelope on local deformation
+      ↓
+clip-wide crop feasibility gain
+      ↓
+dense inverse remap
+      ↓
+minimum required static crop
+```
+
+The model deliberately excludes per-frame scale and zoom parameters.
+
+
+---
+
+# 53. Spherical Visual Lock — PanoPilot 0.34
+
+```text
+first direct render
+      ↓ visual motion analysis
+pairwise dominant velocity
+      ↓ zero-phase low-pass
+rejected shake velocity
+      ↓ integrate
+virtual-camera pixel correction
+      ↓ pixel→angular conversion using current FOV
+second ORIGINAL-SOURCE direct render
+      ↓
+anchored local mesh (global authority = 0)
+      ↓
+small minimum-required crop
+```
+
+The second render is authoritative for the final image. The first render is an
+analysis observation only.
+
+
+---
+
+# 53. Rigid Visual Rotation Decomposition — PanoPilot 0.35
+
+```text
+rendered gyro-stabilized frame pair
+      ↓
+forward/backward feature validation
+      ↓
+RANSAC similarity estimate
+      ↓
+normalize 2×2 block to pure rotation
+      ↓
+recompute center translation from inliers
+      ↓
+[dx, dy, roll] pairwise visual velocity
+      ↓
+zero-phase channel-aware low-pass
+      ↓
+integrated rejected high-frequency motion
+      ↓
+Virtual Camera yaw/pitch/roll correction
+      ↓
+second direct render from original OSV
+```
+
+The similarity scale term is retained only in diagnostics. The resulting
+spherical camera correction is crop-free.
+
+---
+
+# 54. Source-Row Rolling-Shutter Function Chain — PanoPilot 0.36
+
+```text
+DJI ~1 kHz BODY→WORLD trajectory
+        ↓
+synthetic frame reference Rref
+        ↓
+source lens Y from initial factory map
+        ↓
+sensor row exposure time
+        ↓
+Rrow
+        ↓
+A · Rrowᵀ · Rref · Aᵀ
+        ↓
+corrected factory-equirectangular source ray
+        ↓
+DJI factory lens map
+        ↓
+original fisheye sample
+```
+
+The direct map composition iterates the source-row estimate twice. Automatic
+calibration executes at reduced output resolution and reuses the original
+decoded calibration frame pairs for all candidate readout/timing hypotheses.
+
+The spherical visual roll channel is downstream and reliability-gated by
+spatial rotational agreement.
+
+
+---
+
+# 55. Output Policy Resolution — PanoPilot 0.37
+
+```text
+Saved Project
+  aspect + resolution + quality
+            ↓
+Output Profile
+  width + height + 30 fps
+            ↓
+Quality Preset
+  H.264 CRF + encoder preset
+            ↓
+Final Project Renderer
+```
+
+Advanced CLI CRF/preset values may override the selected quality preset for one
+export without modifying the saved Project.

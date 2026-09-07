@@ -32,9 +32,13 @@ import numpy as np
 
 from .attitude import (
     gravity_equirectangular,
-    horizon_correction_from_gravity,
     rotate_equirectangular,
     smooth_unit_vectors_centered,
+    stabilized_horizon_rotation,
+)
+from .stabilization import (
+    build_adaptive_trajectory,
+    sample_trajectory,
 )
 from .dji import (
     extract_calibration,
@@ -171,6 +175,8 @@ def render_preview(
     level_horizon=True,
     level_strength=1.0,
     level_smoothing_ms=100.0,
+    stabilization_amount=0.0,
+    stabilization_smoothing_ms=400.0,
     imu_source="highrate",
     imu_offset_ms=0.0,
     use_actual_video_pts=True,
@@ -218,15 +224,16 @@ def render_preview(
         out_h=height,
     )
 
+    stabilization_amount = max(0.0, min(1.0, float(stabilization_amount)))
     imu_data = (
         extract_orientation_data(source)
-        if level_horizon
+        if (level_horizon or stabilization_amount > 1e-9)
         else None
     )
 
     orientation_samples = []
 
-    if level_horizon:
+    if level_horizon or stabilization_amount > 1e-9:
         if imu_source == "highrate" and imu_data["highrate"]:
             orientation_samples = imu_data["highrate"]
         elif imu_source in ("highrate", "perframe"):
@@ -257,37 +264,47 @@ def render_preview(
 
     leveled_gravity = None
     raw_gravity = None
+    raw_quaternions = None
+    stabilized_quaternions = None
+    stabilization_diagnostics = None
 
-    if level_horizon:
-        raw_gravity_list = []
-
-        for source_time in exposure_times:
-            imu_time = (
-                float(source_time)
-                + float(imu_offset_ms) / 1000.0
-            )
-
-            orientation = orientation_from_samples(
-                orientation_samples,
-                imu_time,
-            )
-
-            raw_gravity_list.append(
-                gravity_equirectangular(orientation["quat"])
-            )
-
-        raw_gravity = np.asarray(raw_gravity_list, dtype=np.float64)
-
-        sigma_frames = (
-            max(0.0, float(level_smoothing_ms))
-            / 1000.0
-            * float(fps)
+    if level_horizon or stabilization_amount > 1e-9:
+        trajectory = build_adaptive_trajectory(
+            orientation_samples, stabilization_amount
         )
-
-        leveled_gravity = smooth_unit_vectors_centered(
-            raw_gravity,
-            sigma_frames,
+        raw_quaternions, stabilized_quaternions = sample_trajectory(
+            trajectory, exposure_times, imu_offset_ms=imu_offset_ms
         )
+        stabilization_diagnostics = {
+            **trajectory.diagnostics,
+            "imu_source_used": (
+                orientation_samples[0].get("source")
+                if orientation_samples else None
+            ),
+            "sync_method": (
+                "dji-perframe-highrate-anchor"
+                if orientation_samples
+                and orientation_samples[0].get("source") == "highrate"
+                else "dji-perframe"
+            ),
+            "highrate_timeline": (
+                imu_data.get("highrate_diagnostics")
+                if imu_data else None
+            ),
+        }
+        raw_gravity = np.asarray(
+            [gravity_equirectangular(q) for q in raw_quaternions],
+            dtype=np.float64,
+        )
+        if level_horizon:
+            sigma_frames = (
+                max(0.0, float(level_smoothing_ms))
+                / 1000.0 * float(fps)
+            )
+            leveled_gravity = smooth_unit_vectors_centered(
+                raw_gravity, sigma_frames
+            )
+
 
     decoder = subprocess.Popen(
         _decoder_command(
@@ -348,22 +365,23 @@ def render_preview(
 
             panorama = mapper.stitch(lens0, lens1)
 
-            if level_horizon:
-                gravity = leveled_gravity[
-                    min(frame_index, len(leveled_gravity) - 1)
-                ]
-
-                rotation, diagnostics = horizon_correction_from_gravity(
-                    gravity,
-                    strength=level_strength,
+            if level_horizon or stabilization_amount > 1e-9:
+                orientation_index = min(frame_index, len(raw_quaternions) - 1)
+                gravity = (
+                    leveled_gravity[min(frame_index, len(leveled_gravity) - 1)]
+                    if level_horizon else None
                 )
-
-                tilts.append(diagnostics["tilt_before_deg"])
-
-                panorama = rotate_equirectangular(
-                    panorama,
-                    rotation,
+                rotation, diagnostics = stabilized_horizon_rotation(
+                    raw_quaternion=raw_quaternions[orientation_index],
+                    smoothed_quaternion=stabilized_quaternions[orientation_index],
+                    leveled_gravity=gravity,
+                    stabilization_amount=stabilization_amount,
+                    level_horizon=level_horizon,
+                    level_strength=level_strength,
                 )
+                if level_horizon:
+                    tilts.append(diagnostics["tilt_before_deg"])
+                panorama = rotate_equirectangular(panorama, rotation)
 
             try:
                 encoder.stdin.write(panorama.tobytes())
@@ -454,6 +472,9 @@ def render_preview(
         "level_horizon": bool(level_horizon),
         "level_strength": float(level_strength),
         "level_smoothing_ms": float(level_smoothing_ms),
+        "stabilization_amount": float(stabilization_amount),
+        "stabilization_algorithm": "adaptive-highrate-v1",
+        "stabilization_diagnostics": stabilization_diagnostics,
         "imu_source_requested": str(imu_source),
         "imu_source_used": (
             orientation_samples[0].get("source")

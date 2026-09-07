@@ -1,15 +1,27 @@
-"""Iteration-1 Project Output Profile policy."""
+"""PanoPilot final conventional-video output policy."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 
-ITERATION_1_OUTPUT_FPS = 30.0
+OUTPUT_FPS = 30.0
+OUTPUT_RESOLUTIONS = (
+    "720p",
+    "1080p",
+)
+OUTPUT_QUALITIES = (
+    "standard",
+    "high",
+    "very-high",
+)
+DEFAULT_OUTPUT_RESOLUTION = "1080p"
+DEFAULT_OUTPUT_QUALITY = "high"
 
 
 @dataclass(frozen=True)
 class ProjectOutputProfile:
     aspect: str
+    resolution: str
     width: int
     height: int
     fps: float
@@ -17,44 +29,150 @@ class ProjectOutputProfile:
     def to_dict(self):
         return {
             "aspect": self.aspect,
+            "resolution": self.resolution,
             "width": int(self.width),
             "height": int(self.height),
             "fps": float(self.fps),
         }
 
 
-def output_profile_for_aspect(aspect):
-    """
-    Resolve OUTPUT-PROFILE-001 for Iteration 1.
+@dataclass(frozen=True)
+class ExportQualityPreset:
+    name: str
+    label: str
+    crf: int
+    preset: str
+    description: str
 
-    Resolution/FPS are automatic policy derived from the saved Project aspect,
-    so existing Project schema v3 remains sufficient to reproduce the complete
-    Iteration-1 Output Profile.
-    """
+    def to_dict(self):
+        return {
+            "name": self.name,
+            "label": self.label,
+            "crf": int(self.crf),
+            "preset": self.preset,
+            "description": self.description,
+        }
+
+
+_QUALITY_PRESETS = {
+    "standard": ExportQualityPreset(
+        name="standard",
+        label="Standard",
+        crf=23,
+        preset="medium",
+        description="Smaller file; good general sharing quality.",
+    ),
+    "high": ExportQualityPreset(
+        name="high",
+        label="High",
+        crf=18,
+        preset="medium",
+        description="Recommended; preserves the previous PanoPilot export quality.",
+    ),
+    "very-high": ExportQualityPreset(
+        name="very-high",
+        label="Very High",
+        crf=15,
+        preset="medium",
+        description="Higher fidelity with a larger H.264 file.",
+    ),
+}
+
+
+def output_profile_for_aspect(
+    aspect,
+    resolution=DEFAULT_OUTPUT_RESOLUTION,
+):
+    """Resolve the saved final-video geometry for one aspect/resolution pair."""
     aspect = str(aspect)
+    resolution = str(resolution).lower()
 
-    if aspect == "16:9":
-        return ProjectOutputProfile(
-            aspect="16:9",
-            width=1920,
-            height=1080,
-            fps=ITERATION_1_OUTPUT_FPS,
+    if aspect not in (
+        "16:9",
+        "9:16",
+    ):
+        raise ValueError(
+            "aspect must be '16:9' or '9:16'"
         )
+
+    if resolution not in OUTPUT_RESOLUTIONS:
+        raise ValueError(
+            "resolution must be '720p' or '1080p'"
+        )
+
+    landscape = {
+        "720p": (
+            1280,
+            720,
+        ),
+        "1080p": (
+            1920,
+            1080,
+        ),
+    }[resolution]
+
+    width, height = landscape
 
     if aspect == "9:16":
-        return ProjectOutputProfile(
-            aspect="9:16",
-            width=1080,
-            height=1920,
-            fps=ITERATION_1_OUTPUT_FPS,
+        width, height = (
+            height,
+            width,
         )
 
-    raise ValueError(
-        "aspect must be '16:9' or '9:16'"
+    return ProjectOutputProfile(
+        aspect=aspect,
+        resolution=resolution,
+        width=width,
+        height=height,
+        fps=OUTPUT_FPS,
     )
 
 
-def output_profile_for_project(project):
+def output_profile_for_project(
+    project,
+    *,
+    resolution=None,
+):
+    selected = (
+        getattr(
+            project,
+            "output_resolution",
+            DEFAULT_OUTPUT_RESOLUTION,
+        )
+        if resolution is None
+        else str(resolution)
+    )
     return output_profile_for_aspect(
-        project.output_aspect
+        project.output_aspect,
+        selected,
+    )
+
+
+def export_quality_for_name(name):
+    name = str(name).lower()
+
+    try:
+        return _QUALITY_PRESETS[name]
+    except KeyError as exc:
+        raise ValueError(
+            "quality must be 'standard', 'high', or 'very-high'"
+        ) from exc
+
+
+def export_quality_for_project(
+    project,
+    *,
+    quality=None,
+):
+    selected = (
+        getattr(
+            project,
+            "output_quality",
+            DEFAULT_OUTPUT_QUALITY,
+        )
+        if quality is None
+        else str(quality)
+    )
+    return export_quality_for_name(
+        selected
     )

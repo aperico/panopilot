@@ -1,0 +1,404 @@
+{
+  "project": "results/panopilot_project.json",
+  "output": "results/final-029-stab70.mp4",
+  "clip_count": 2,
+  "project_timeline_duration": 23.701332999999998,
+  "encoded_duration": 23.7,
+  "output_profile": {
+    "aspect": "16:9",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30.0
+  },
+  "panorama_render": {
+    "width": 3840,
+    "height": 1920,
+    "level_horizon": true,
+    "level_strength": 1.0,
+    "level_smoothing_ms": 100.0,
+    "imu_source": "highrate",
+    "imu_offset_ms": 0.0
+  },
+  "camera_motion": {
+    "easing": "smooth",
+    "strength": 1.0
+  },
+  "stabilization": {
+    "amount": 0.7,
+    "amount_percent": 70.0,
+    "smoothing_ms": 400.0,
+    "mode": "gyro-smoothed-3axis-plus-horizon"
+  },
+  "projection_prefetch": true,
+  "render_pipeline": "direct",
+  "decoder": {
+    "requested": "auto",
+    "preferred_vaapi_device": null
+  },
+  "encoder": {
+    "codec": "libx264",
+    "crf": 18,
+    "preset": "medium"
+  },
+  "frame_groups": [
+    {
+      "clip_id": "clip-1",
+      "clip_index": 0,
+      "source": "/home/aperico/workspace/osmo360/samples/osmosample.OSV",
+      "first_frame_index": 0,
+      "frame_count": 180,
+      "frame_end_exclusive": 180,
+      "project_time_start": 0.0,
+      "source_time_start": 0.0
+    },
+    {
+      "clip_id": "clip-2",
+      "clip_index": 1,
+      "source": "/home/aperico/Videos/osmo/CAM_20260829102703_0003_D.OSV",
+      "first_frame_index": 180,
+      "frame_count": 531,
+      "frame_end_exclusive": 711,
+      "project_time_start": 6.0,
+      "source_time_start": 0.0
+    }
+  ],
+  "video": {
+    "decoder_policy": {
+      "requested": "auto",
+      "preferred_vaapi_device": null,
+      "clip_backend_counts": {
+        "vaapi": 2
+      }
+    },
+    "render_pipeline": "direct",
+    "projection_pipeline": "dynamic-camera-map -> composed-factory-lens-maps -> direct-dual-lens-remap-blend",
+    "full_panorama_constructed_per_frame": false,
+    "post_stitch_resamples_per_frame": 0,
+    "projection_kernel": "float32-analytic-composed-map",
+    "projection_prefetch": {
+      "enabled": true,
+      "depth_frames": 1,
+      "worker_count": 1
+    },
+    "projection_breakdown": {},
+    "direct_render_breakdown": {
+      "factory_map_compose_worker": {
+        "seconds": 18.94579676608555,
+        "calls": 711,
+        "mean_ms": 26.646690247659002,
+        "share_percent": 49.98690185621189
+      },
+      "lens_remap_blend": {
+        "seconds": 3.5551605275832117,
+        "calls": 711,
+        "mean_ms": 5.000225777191577,
+        "share_percent": 9.379994020283053
+      },
+      "projection_map_worker": {
+        "seconds": 14.629199741175398,
+        "calls": 711,
+        "mean_ms": 20.57552706213136,
+        "share_percent": 38.59792125534051
+      }
+    },
+    "stage_timings": {
+      "clip_setup_calibration_maps": {
+        "seconds": 1.4769949831534177,
+        "calls": 2,
+        "mean_ms": 738.4974915767089,
+        "share_percent": 3.896927860915799
+      },
+      "clip_setup_imu": {
+        "seconds": 0.36652656411752105,
+        "calls": 2,
+        "mean_ms": 183.26328205876052,
+        "share_percent": 0.9670497163272667
+      },
+      "clip_setup_source_pts": {
+        "seconds": 0.0006010751239955425,
+        "calls": 2,
+        "mean_ms": 0.30053756199777126,
+        "share_percent": 0.0015858864951597098
+      },
+      "decoder_backend_probe": {
+        "seconds": 0.5439482920337468,
+        "calls": 2,
+        "mean_ms": 271.9741460168734,
+        "share_percent": 1.4351621219445212
+      },
+      "decoder_finalize": {
+        "seconds": 0.15643646172247827,
+        "calls": 2,
+        "mean_ms": 78.21823086123914,
+        "share_percent": 0.41274453407272754
+      },
+      "decoder_read_wait": {
+        "seconds": 7.6805055271834135,
+        "calls": 711,
+        "mean_ms": 10.802398772409864,
+        "share_percent": 20.264372131377723
+      },
+      "decoder_startup": {
+        "seconds": 0.001289235893636942,
+        "calls": 2,
+        "mean_ms": 0.644617946818471,
+        "share_percent": 0.0034015411903972727
+      },
+      "direct_lens_render": {
+        "seconds": 3.56996441911906,
+        "calls": 711,
+        "mean_ms": 5.021047002980394,
+        "share_percent": 9.419052851243233
+      },
+      "direct_map_wait": {
+        "seconds": 18.56519679655321,
+        "calls": 711,
+        "mean_ms": 26.11138789951225,
+        "share_percent": 48.98272063552305
+      },
+      "encoder_finalize": {
+        "seconds": 0.6668212469667196,
+        "calls": 1,
+        "mean_ms": 666.8212469667196,
+        "share_percent": 1.7593521475660345
+      },
+      "encoder_write_wait": {
+        "seconds": 4.305748224258423,
+        "calls": 711,
+        "mean_ms": 6.055904675468949,
+        "share_percent": 11.360356946763234
+      },
+      "stabilization_rotation_math": {
+        "seconds": 0.3440761782694608,
+        "calls": 711,
+        "mean_ms": 0.4839327401820827,
+        "share_percent": 0.9078162489847929
+      },
+      "view_path_evaluation": {
+        "seconds": 0.028770499164238572,
+        "calls": 711,
+        "mean_ms": 0.04046483708050432,
+        "share_percent": 0.07590855828515043
+      }
+    },
+    "dominant_stage": {
+      "name": "direct_map_wait",
+      "seconds": 18.56519679655321,
+      "share_percent": 48.98272063552305
+    },
+    "measured_stage_seconds": 37.70687950355932,
+    "frames": 711,
+    "processing_seconds": 37.90152232395485,
+    "processing_fps": 18.759140963333486,
+    "clips": [
+      {
+        "clip_id": "clip-1",
+        "clip_index": 0,
+        "source": "/home/aperico/workspace/osmo360/samples/osmosample.OSV",
+        "first_frame_index": 0,
+        "frame_count": 180,
+        "frame_end_exclusive": 180,
+        "project_time_start": 0.0,
+        "source_time_start": 0.0,
+        "frames_rendered": 180,
+        "decoder": {
+          "requested": "auto",
+          "backend": "vaapi",
+          "vaapi_device": "/dev/dri/renderD128",
+          "smoke_tested": true,
+          "fallback": false,
+          "reason": "exact lens decode smoke test passed"
+        },
+        "source_pts": {
+          "method": "cfr-stream-metadata",
+          "frame_rate": 100.0,
+          "ffprobe_frame_scan": false,
+          "used_actual_pts": true,
+          "mean_abs_mapping_error_ms": 2.22222222222222,
+          "max_abs_mapping_error_ms": 3.3333333333338544
+        },
+        "factory_mapping": {
+          "source_width": 1920,
+          "source_height": 1920,
+          "calibration_width": 3840.0,
+          "calibration_height": 3840.0,
+          "scale_x": 0.5,
+          "scale_y": 0.5,
+          "radial_scale_lens0": 1.1054635141789901,
+          "radial_scale_lens1": 1.1054786428796302
+        }
+      },
+      {
+        "clip_id": "clip-2",
+        "clip_index": 1,
+        "source": "/home/aperico/Videos/osmo/CAM_20260829102703_0003_D.OSV",
+        "first_frame_index": 180,
+        "frame_count": 531,
+        "frame_end_exclusive": 711,
+        "project_time_start": 6.0,
+        "source_time_start": 0.0,
+        "frames_rendered": 531,
+        "decoder": {
+          "requested": "auto",
+          "backend": "vaapi",
+          "vaapi_device": "/dev/dri/renderD128",
+          "smoke_tested": true,
+          "fallback": false,
+          "reason": "exact lens decode smoke test passed"
+        },
+        "source_pts": {
+          "method": "cfr-stream-metadata",
+          "frame_rate": 100.0,
+          "ffprobe_frame_scan": false,
+          "used_actual_pts": true,
+          "mean_abs_mapping_error_ms": 2.222222222222197,
+          "max_abs_mapping_error_ms": 3.3333333333338544
+        },
+        "factory_mapping": {
+          "source_width": 1920,
+          "source_height": 1920,
+          "calibration_width": 3840.0,
+          "calibration_height": 3840.0,
+          "scale_x": 0.5,
+          "scale_y": 0.5,
+          "radial_scale_lens0": 1.1054635141789901,
+          "radial_scale_lens1": 1.1054786428796302
+        }
+      }
+    ]
+  },
+  "audio": {
+    "included": true,
+    "source_audio_clips": 2,
+    "silent_clips": 0,
+    "target_duration": 23.7,
+    "ffmpeg_stderr": ""
+  },
+  "verification": {
+    "codec": "h264",
+    "width": 1920,
+    "height": 1080,
+    "audio_stream_count": 1,
+    "format_duration": 23.7,
+    "av_stream_duration_delta_s": 0.0,
+    "av_sync_tolerance_s": 0.05
+  },
+  "performance": {
+    "processing_seconds": 38.421760191908106,
+    "frames": 711,
+    "processing_fps": 18.505138662276632,
+    "real_time_factor": 1.6211713161142662,
+    "overall_stage_timings": {
+      "audio_assembly": {
+        "seconds": 0.2942711659707129,
+        "calls": 1,
+        "mean_ms": 294.2711659707129,
+        "share_percent": 0.7658971491698824
+      },
+      "final_mux": {
+        "seconds": 0.13032512087374926,
+        "calls": 1,
+        "mean_ms": 130.32512087374926,
+        "share_percent": 0.33919612277731265
+      },
+      "final_verification": {
+        "seconds": 0.08565160096623003,
+        "calls": 1,
+        "mean_ms": 85.65160096623003,
+        "share_percent": 0.22292471906133252
+      },
+      "video_render": {
+        "seconds": 37.90668367315084,
+        "calls": 1,
+        "mean_ms": 37906.68367315084,
+        "share_percent": 98.65941457084585
+      }
+    },
+    "video_stage_timings": {
+      "clip_setup_calibration_maps": {
+        "seconds": 1.4769949831534177,
+        "calls": 2,
+        "mean_ms": 738.4974915767089,
+        "share_percent": 3.896927860915799
+      },
+      "clip_setup_imu": {
+        "seconds": 0.36652656411752105,
+        "calls": 2,
+        "mean_ms": 183.26328205876052,
+        "share_percent": 0.9670497163272667
+      },
+      "clip_setup_source_pts": {
+        "seconds": 0.0006010751239955425,
+        "calls": 2,
+        "mean_ms": 0.30053756199777126,
+        "share_percent": 0.0015858864951597098
+      },
+      "decoder_backend_probe": {
+        "seconds": 0.5439482920337468,
+        "calls": 2,
+        "mean_ms": 271.9741460168734,
+        "share_percent": 1.4351621219445212
+      },
+      "decoder_finalize": {
+        "seconds": 0.15643646172247827,
+        "calls": 2,
+        "mean_ms": 78.21823086123914,
+        "share_percent": 0.41274453407272754
+      },
+      "decoder_read_wait": {
+        "seconds": 7.6805055271834135,
+        "calls": 711,
+        "mean_ms": 10.802398772409864,
+        "share_percent": 20.264372131377723
+      },
+      "decoder_startup": {
+        "seconds": 0.001289235893636942,
+        "calls": 2,
+        "mean_ms": 0.644617946818471,
+        "share_percent": 0.0034015411903972727
+      },
+      "direct_lens_render": {
+        "seconds": 3.56996441911906,
+        "calls": 711,
+        "mean_ms": 5.021047002980394,
+        "share_percent": 9.419052851243233
+      },
+      "direct_map_wait": {
+        "seconds": 18.56519679655321,
+        "calls": 711,
+        "mean_ms": 26.11138789951225,
+        "share_percent": 48.98272063552305
+      },
+      "encoder_finalize": {
+        "seconds": 0.6668212469667196,
+        "calls": 1,
+        "mean_ms": 666.8212469667196,
+        "share_percent": 1.7593521475660345
+      },
+      "encoder_write_wait": {
+        "seconds": 4.305748224258423,
+        "calls": 711,
+        "mean_ms": 6.055904675468949,
+        "share_percent": 11.360356946763234
+      },
+      "stabilization_rotation_math": {
+        "seconds": 0.3440761782694608,
+        "calls": 711,
+        "mean_ms": 0.4839327401820827,
+        "share_percent": 0.9078162489847929
+      },
+      "view_path_evaluation": {
+        "seconds": 0.028770499164238572,
+        "calls": 711,
+        "mean_ms": 0.04046483708050432,
+        "share_percent": 0.07590855828515043
+      }
+    },
+    "dominant_video_stage": {
+      "name": "direct_map_wait",
+      "seconds": 18.56519679655321,
+      "share_percent": 48.98272063552305
+    }
+  },
+  "processing_seconds": 38.421760191908106
+}

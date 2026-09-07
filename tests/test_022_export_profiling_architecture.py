@@ -13,7 +13,7 @@ def test_export_profiles_major_video_stages():
     for stage in (
         "decoder_read_wait",
         "factory_stitch",
-        "horizon_rotation_math",
+        "stabilization_rotation_math",
         "view_path_evaluation",
         "composed_projection",
         "encoder_write_wait",

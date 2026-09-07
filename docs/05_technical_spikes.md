@@ -1,7 +1,7 @@
 # PanoPilot — Technical Spikes
 
 Status: Draft  
-Baseline: TS-0.11
+Baseline: TS-0.17
 Scope: Iteration 1 Architecture Validation  
 Parent: `04_functional_architecture.md`
 
@@ -1283,3 +1283,126 @@ current-frame decode/stitch.
 # 23. Direct Final Renderer Spike — PanoPilot 0.28
 
 The representative 0.27 no-prefetch run measured projection-map wait at 12.81 s and factory stitch at 11.46 s. This is sufficient evidence to spike removal of the full intermediate panorama while preserving the existing renderer as the reference.
+
+
+---
+
+# 24. Stabilization Adjustment Spike — PanoPilot 0.29
+
+Representative direct output validated image geometry but exposed physical-camera shake. 0.29 separates absolute horizon leveling from adjustable high-frequency full-orientation motion damping. Initial smoothing target is centered 400 ms; User amount controls correction strength.
+
+
+---
+
+# 25. 0.29 Stabilization Failure and 0.30 Decision
+
+Representative 0.29 output remained visibly shaky at 70%. 0.30 moves stabilization to the native DJI quaternion timeline and uses velocity-adaptive filtering before exposure-time SLERP. The existing DJI per-frame/high-rate anchor remains the timing authority. Optical-flow residual correction remains a future stage if non-rotational motion persists.
+
+
+---
+# 26. Visual Residual Stabilization Spike — PanoPilot 0.31
+Representative 0.30 100% gyro-stabilized output retained visible high-frequency 2D displacement. 0.31 tests a hybrid optical-flow similarity stage with an explicit crop budget.
+
+---
+
+# 25. Extreme Stabilization Spike — PanoPilot 0.32
+
+The 0.31 crop-backed single-pass stabilizer improved representative footage but
+did not reach the requested gimbal/tripod-like steadiness.
+
+The next spike therefore tests iterative residual estimation rather than a
+larger single smoothing coefficient. The hypothesis is that estimation error,
+scale jitter, and unmodelled residual motion become measurable after the first
+correction and can be removed by additional offline passes.
+
+Acceptance is primarily visual. Crop loss up to 60% is permitted for this mode.
+
+
+---
+
+# 26. 0.32 Wobble Finding and 0.33 Decision
+
+The 0.32 representative run removed substantially more shake but introduced
+visible wobble. Diagnostics showed non-trivial visual scale estimates and
+later-pass crop limiting with near-zero correction ratios on some frames.
+
+0.33 tests the hypothesis that the remaining objectionable motion is primarily
+translation while similarity-model scale/rotation and frame-local crop clipping
+are creating the wobble. Locked mode therefore removes those degrees of freedom.
+
+---
+
+# 26. Walking Wobble Root-Cause Review — PanoPilot 0.34
+
+The 0.31–0.33 experiments showed that increasing a global residual transform
+does not converge on walking footage. The failure mode is consistent with
+spatially variant motion: parallax and rolling-shutter/stitch residuals cause
+different image regions to request different corrections.
+
+0.34 tests an anchored coarse-mesh architecture. The acceptance criteria are:
+
+- materially less walking shake;
+- no rubber/zoom wobble;
+- materially less crop than the 40–50% experiments;
+- no per-frame stabilization-strength clipping.
+
+
+---
+
+# 27. 360-Domain Stabilization Root Cause — PanoPilot 0.34
+
+Code review concluded that 0.31–0.33 incorrectly spent crop budget on the
+largest residual motion after converting a complete 360 capture to a narrow
+16:9 frame. Walking translation/parallax then forced incompatible scene depths
+through one 2D transform and produced wobble.
+
+0.34 tests the opposite decomposition: use the sphere for dominant global
+visual correction and reserve 2D spatial deformation for small local residuals.
+
+
+---
+
+# 27. Residual Rotation Review — PanoPilot 0.35
+
+The representative 0.34 output showed materially higher residual rotation in
+the walking Clip than in the first Clip. The previous spherical analyzer had no
+roll output channel, so this residual could not be corrected by the second 360
+render.
+
+The 0.35 spike adds rigid visual roll correction and removes the automatic
+post-spherical mesh. It also measures spatial rotation disagreement. Persistent
+intra-frame disagreement after the rigid correction is the gate for a later
+row-time rolling-shutter correction spike.
+
+---
+
+# 28. Source Rolling-Shutter Rectification Spike — PanoPilot 0.36
+
+The previous stabilization sequence materially improved frame-level motion but
+continued to show walking-related rotational wobble. Public rolling-shutter
+literature identifies this as a characteristic failure when high-frequency
+camera rotation is stabilized between frames but source sensor rows were
+captured at different times.
+
+0.36 tests a source-domain row-time gyro warp in the direct renderer.
+
+The calibration gate is empirical:
+
+- zero-readout output is always scored;
+- positive and negative readout durations are tested;
+- frame-reference timing offset is fitted jointly;
+- a non-zero solution must materially improve residual rigidity/spatial
+  rotational agreement.
+
+Acceptance is visual reduction of walking jello/rotation wobble without
+reintroducing large crop or flexible-mesh deformation.
+
+
+---
+
+# 29. Final Delivery Options — PanoPilot 0.37
+
+The previous fixed 1080p/30 fps policy is generalized only across the requested
+720p–1080p range. This keeps output geometry bounded while allowing a materially
+faster/smaller 720p delivery. Quality remains CRF-based H.264 with named presets
+rather than exposing codec parameters as the primary UI.

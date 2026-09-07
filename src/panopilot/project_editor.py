@@ -191,6 +191,7 @@ def run_project_editor(
         from PySide6.QtCore import QEventLoop, Qt
         from PySide6.QtWidgets import (
             QApplication,
+            QComboBox,
             QFileDialog,
             QHBoxLayout,
             QLabel,
@@ -198,6 +199,7 @@ def run_project_editor(
             QListWidgetItem,
             QMessageBox,
             QPushButton,
+            QSlider,
             QVBoxLayout,
             QWidget,
         )
@@ -247,6 +249,58 @@ def run_project_editor(
 
             self.summary = QLabel()
             self.summary.setWordWrap(True)
+
+            self.output_title = QLabel("Export")
+            self.output_title.setStyleSheet(
+                "font-weight: 600;"
+            )
+            self.resolution_combo = QComboBox()
+            self.resolution_combo.addItem(
+                "720p HD",
+                "720p",
+            )
+            self.resolution_combo.addItem(
+                "1080p Full HD",
+                "1080p",
+            )
+            self.resolution_combo.setToolTip(
+                "Final video size. 16:9 uses 1280×720 or 1920×1080; "
+                "9:16 uses 720×1280 or 1080×1920."
+            )
+            self.quality_combo = QComboBox()
+            self.quality_combo.addItem(
+                "Standard",
+                "standard",
+            )
+            self.quality_combo.addItem(
+                "High (recommended)",
+                "high",
+            )
+            self.quality_combo.addItem(
+                "Very High",
+                "very-high",
+            )
+            self.quality_combo.setToolTip(
+                "H.264 export quality. High preserves the previous "
+                "PanoPilot CRF 18 behavior."
+            )
+
+            self.stabilization_title = QLabel("Stabilization")
+            self.stabilization_title.setStyleSheet("font-weight: 600;")
+            self.stabilization_slider = QSlider(Qt.Orientation.Horizontal)
+            self.stabilization_slider.setRange(0, 100)
+            self.stabilization_slider.setMinimumWidth(240)
+            self.stabilization_slider.setToolTip(
+                "High-rate adaptive gyro stabilization. "
+                "0% = horizon leveling only; "
+                "70% = strong gimbal-like shake suppression; "
+                "100% = maximum stabilization with adaptive follow during fast turns."
+            )
+            self.stabilization_value = QLabel()
+            self.stabilization_value.setMinimumWidth(48)
+            self.stabilization_value.setAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
 
             self.list = QListWidget()
             self.list.setSelectionMode(
@@ -323,6 +377,18 @@ def run_project_editor(
             self.close_button.clicked.connect(
                 self.close
             )
+            self.resolution_combo.currentIndexChanged.connect(
+                self._resolution_changed
+            )
+            self.quality_combo.currentIndexChanged.connect(
+                self._quality_changed
+            )
+            self.stabilization_slider.valueChanged.connect(
+                self._stabilization_preview
+            )
+            self.stabilization_slider.sliderReleased.connect(
+                self._stabilization_committed
+            )
 
             buttons = QHBoxLayout()
             buttons.addWidget(
@@ -363,6 +429,32 @@ def run_project_editor(
                 self.close_button
             )
 
+            output_row = QHBoxLayout()
+            output_row.setSpacing(8)
+            output_row.addWidget(
+                self.output_title
+            )
+            output_row.addWidget(
+                QLabel("Size")
+            )
+            output_row.addWidget(
+                self.resolution_combo
+            )
+            output_row.addSpacing(12)
+            output_row.addWidget(
+                QLabel("Quality")
+            )
+            output_row.addWidget(
+                self.quality_combo
+            )
+            output_row.addStretch(1)
+
+            stabilization_row = QHBoxLayout()
+            stabilization_row.setSpacing(8)
+            stabilization_row.addWidget(self.stabilization_title)
+            stabilization_row.addWidget(self.stabilization_slider, 1)
+            stabilization_row.addWidget(self.stabilization_value)
+
             layout = QVBoxLayout(self)
             layout.addWidget(
                 self.title
@@ -370,6 +462,8 @@ def run_project_editor(
             layout.addWidget(
                 self.summary
             )
+            layout.addLayout(output_row)
+            layout.addLayout(stabilization_row)
             layout.addLayout(
                 buttons
             )
@@ -541,13 +635,60 @@ def run_project_editor(
                 else "Project duration unavailable for one or more sources"
             )
 
+            stabilization_percent = int(round(
+                session.project.stabilization_amount * 100.0
+            ))
             self.summary.setText(
                 f"{len(session.project.clips)} Clip(s)   |   "
                 f"{duration_summary}   |   "
+                f"Output {session.project.output_resolution} / "
+                f"{session.project.output_quality.replace('-', ' ').title()}   |   "
+                f"Stabilization {stabilization_percent}%   |   "
                 f"{status}\n"
                 "Timeline order belongs to Clip instances. Reordering does "
                 "not change Camera Position Source Times."
             )
+            resolution_index = self.resolution_combo.findData(
+                session.project.output_resolution
+            )
+            if (
+                resolution_index >= 0
+                and self.resolution_combo.currentIndex()
+                != resolution_index
+            ):
+                self.resolution_combo.blockSignals(
+                    True
+                )
+                self.resolution_combo.setCurrentIndex(
+                    resolution_index
+                )
+                self.resolution_combo.blockSignals(
+                    False
+                )
+
+            quality_index = self.quality_combo.findData(
+                session.project.output_quality
+            )
+            if (
+                quality_index >= 0
+                and self.quality_combo.currentIndex()
+                != quality_index
+            ):
+                self.quality_combo.blockSignals(
+                    True
+                )
+                self.quality_combo.setCurrentIndex(
+                    quality_index
+                )
+                self.quality_combo.blockSignals(
+                    False
+                )
+
+            if self.stabilization_slider.value() != stabilization_percent:
+                self.stabilization_slider.blockSignals(True)
+                self.stabilization_slider.setValue(stabilization_percent)
+                self.stabilization_slider.blockSignals(False)
+            self.stabilization_value.setText(f"{stabilization_percent}%")
 
             self.undo_button.setEnabled(
                 session.can_undo
@@ -606,6 +747,53 @@ def run_project_editor(
             self.setWindowTitle(
                 WINDOW_TITLE + suffix
             )
+
+        def _resolution_changed(self, _index):
+            resolution = self.resolution_combo.currentData()
+            if resolution is None:
+                return
+            try:
+                session.set_output_resolution(
+                    resolution
+                )
+            except Exception as exc:
+                QMessageBox.critical(
+                    self,
+                    "PanoPilot — Output size failed",
+                    str(exc),
+                )
+            self._refresh()
+
+        def _quality_changed(self, _index):
+            quality = self.quality_combo.currentData()
+            if quality is None:
+                return
+            try:
+                session.set_output_quality(
+                    quality
+                )
+            except Exception as exc:
+                QMessageBox.critical(
+                    self,
+                    "PanoPilot — Export quality failed",
+                    str(exc),
+                )
+            self._refresh()
+
+        def _stabilization_preview(self, value):
+            self.stabilization_value.setText(f"{int(value)}%")
+
+        def _stabilization_committed(self):
+            amount = self.stabilization_slider.value() / 100.0
+            try:
+                session.set_stabilization_amount(amount)
+            except Exception as exc:
+                QMessageBox.critical(
+                    self, "PanoPilot — Stabilization failed", str(exc)
+                )
+                self._refresh()
+                return
+            self._refresh()
 
         def _add_files(self):
             paths, _filter = (

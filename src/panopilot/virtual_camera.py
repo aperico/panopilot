@@ -14,6 +14,7 @@ User-facing camera semantics:
 
   yaw   > 0  -> look right
   pitch > 0  -> look up
+  roll  > 0  -> roll view clockwise
   FOV        -> horizontal field of view
 
 The projection is pinhole/rectilinear. Yaw/pitch/FOV are engineering controls
@@ -33,6 +34,7 @@ class VirtualCamera:
     yaw_deg: float = 0.0
     pitch_deg: float = 0.0
     fov_deg: float = 90.0
+    roll_deg: float = 0.0
 
     def validate(self):
         if not -360.0 <= float(self.yaw_deg) <= 360.0:
@@ -41,6 +43,8 @@ class VirtualCamera:
             raise ValueError("pitch_deg must be between -89.9 and 89.9")
         if not 1.0 <= float(self.fov_deg) < 179.0:
             raise ValueError("fov_deg must be in [1, 179)")
+        if not -360.0 <= float(self.roll_deg) <= 360.0:
+            raise ValueError("roll_deg must be between -360 and 360")
 
 
 def _rotation_y(angle_rad):
@@ -63,19 +67,36 @@ def _rotation_x(angle_rad):
     ], dtype=np.float64)
 
 
+def _rotation_z(angle_rad):
+    c = math.cos(angle_rad)
+    s = math.sin(angle_rad)
+    return np.array([
+        [c, -s, 0.0],
+        [s, c, 0.0],
+        [0.0, 0.0, 1.0],
+    ], dtype=np.float64)
+
+
 def camera_rotation(camera: VirtualCamera):
     """
     Camera-local ray -> panorama/world ray.
 
     Positive user pitch means "look up". A standard positive X-axis rotation
-    moves +Z toward -Y, so the internal rotation uses -pitch.
+    moves +Z toward -Y, so the internal rotation uses -pitch. Positive roll is
+    a camera-local +Z rotation and appears as clockwise content rotation in
+    image coordinates.
     """
     camera.validate()
 
     yaw = math.radians(float(camera.yaw_deg))
     pitch = math.radians(float(camera.pitch_deg))
+    roll = math.radians(float(camera.roll_deg))
 
-    return _rotation_y(yaw) @ _rotation_x(-pitch)
+    return (
+        _rotation_y(yaw)
+        @ _rotation_x(-pitch)
+        @ _rotation_z(roll)
+    )
 
 
 def rectilinear_rays(width: int, height: int, horizontal_fov_deg: float):

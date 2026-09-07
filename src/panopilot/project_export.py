@@ -24,8 +24,10 @@ The disposable panoramic preview cache is never an export image source.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 import glob
+import math
 import shutil
 import subprocess
 import tempfile
@@ -36,8 +38,12 @@ import numpy as np
 
 from .attitude import (
     gravity_equirectangular,
-    horizon_correction_from_gravity,
     smooth_unit_vectors_centered,
+    stabilized_horizon_rotation,
+)
+from .stabilization import (
+    build_adaptive_trajectory,
+    sample_trajectory,
 )
 from .dji import (
     extract_calibration,
@@ -46,7 +52,16 @@ from .dji import (
 )
 from .factory import FactoryCalibratedMapper
 from .direct_render import DirectLensRenderer, DirectMapPrefetcher
-from .output_profile import output_profile_for_project
+from .rolling_shutter import (
+    RollingShutterCalibration,
+    build_frame_correction,
+    candidate_signed_readouts,
+    choose_calibration,
+)
+from .output_profile import (
+    export_quality_for_project,
+    output_profile_for_project,
+)
 from .performance import (
     StageProfiler,
     dominant_stage,
@@ -57,6 +72,7 @@ from .projection_prefetch import (
 from .project import load_project
 from .source import (
     audio_streams,
+    decode_lens_pair,
     lens_streams,
     preview_exposure_times,
     probe_source,
@@ -66,8 +82,24 @@ from .timeline import (
     build_project_timeline,
     timeline_time_to_source,
 )
-from .virtual_camera import RectilinearProjector
+from .virtual_camera import RectilinearProjector, VirtualCamera
 from .view_path import evaluate_clip_view_path
+from .visual_stabilization import (
+    stabilize_rendered_video,
+)
+from .extreme_stabilization import (
+    stabilize_rendered_video_extreme,
+)
+from .locked_stabilization import (
+    stabilize_rendered_video_locked,
+)
+from .anchored_stabilization import (
+    stabilize_rendered_video_anchored,
+)
+from .spherical_stabilization import (
+    _estimate_rigid_motion,
+    analyze_spherical_camera_stabilization,
+)
 
 
 EXPORT_AV_SYNC_TOLERANCE_S = 0.050
@@ -653,68 +685,58 @@ def build_export_frame_groups(
     return groups, total_frames
 
 
-def _orientation_gravity_for_times(
-    source,
-    exposure_times,
-    *,
-    fps,
-    level_smoothing_ms,
-    imu_source,
-    imu_offset_ms,
+def _orientation_state_for_times(
+    source, exposure_times, *, fps, level_smoothing_ms,
+    stabilization_amount, stabilization_smoothing_ms,
+    imu_source, imu_offset_ms,
 ):
-    data = extract_orientation_data(
-        source
-    )
-
-    if (
-        imu_source == "highrate"
-        and data["highrate"]
-    ):
+    data = extract_orientation_data(source)
+    if imu_source == "highrate" and data["highrate"]:
         samples = data["highrate"]
-    elif imu_source in (
-        "highrate",
-        "perframe",
-    ):
+        source_used = "highrate"
+    elif imu_source in ("highrate", "perframe"):
         samples = data["perframe"]
+        source_used = "perframe"
     else:
-        raise ValueError(
-            "imu_source must be 'highrate' or 'perframe'"
-        )
+        raise ValueError("imu_source must be 'highrate' or 'perframe'")
 
-    raw = []
-
-    for source_time in exposure_times:
-        orientation = orientation_from_samples(
-            samples,
-            float(source_time)
-            + float(imu_offset_ms)
-            / 1000.0,
-        )
-        raw.append(
-            gravity_equirectangular(
-                orientation["quat"]
-            )
-        )
-
-    raw = np.asarray(
-        raw,
+    stabilization_amount = max(0.0, min(1.0, float(stabilization_amount)))
+    trajectory = build_adaptive_trajectory(samples, stabilization_amount)
+    raw_quaternions, smoothed_quaternions = sample_trajectory(
+        trajectory, exposure_times, imu_offset_ms=imu_offset_ms
+    )
+    raw_gravity = np.asarray(
+        [gravity_equirectangular(q) for q in raw_quaternions],
         dtype=np.float64,
     )
-
-    sigma_frames = (
-        max(
-            0.0,
-            float(level_smoothing_ms),
-        )
-        / 1000.0
-        * float(fps)
+    horizon_sigma = (
+        max(0.0, float(level_smoothing_ms)) / 1000.0 * float(fps)
     )
+    leveled_gravity = smooth_unit_vectors_centered(raw_gravity, horizon_sigma)
 
-    return smooth_unit_vectors_centered(
-        raw,
-        sigma_frames,
-    )
-
+    diagnostics = {
+        **trajectory.diagnostics,
+        "imu_source_used": source_used,
+        "imu_offset_ms": float(imu_offset_ms),
+        "sync_method": (
+            "dji-perframe-highrate-anchor"
+            if source_used == "highrate"
+            else "dji-perframe"
+        ),
+        "highrate_timeline": (
+            data.get("highrate_diagnostics")
+            if source_used == "highrate"
+            else None
+        ),
+        "legacy_smoothing_ms_ignored": float(stabilization_smoothing_ms),
+    }
+    return {
+        "raw_quaternions": raw_quaternions,
+        "smoothed_quaternions": smoothed_quaternions,
+        "leveled_gravity": leveled_gravity,
+        "trajectory": trajectory,
+        "diagnostics": diagnostics,
+    }
 
 def _source_duration_from_probe(probe, source):
     value = probe.get(
@@ -737,6 +759,560 @@ def _source_duration_from_probe(probe, source):
     return duration
 
 
+
+def _stream_frame_rate(stream):
+    if stream is None:
+        return None
+
+    values = []
+    for key in (
+        "avg_frame_rate",
+        "r_frame_rate",
+    ):
+        value = stream.get(key)
+        if value in (
+            None,
+            "",
+            "0/0",
+            "N/A",
+        ):
+            continue
+        try:
+            rate = float(
+                Fraction(
+                    str(value)
+                )
+            )
+        except (
+            ValueError,
+            ZeroDivisionError,
+        ):
+            continue
+
+        if (
+            math.isfinite(rate)
+            and rate > 0.0
+        ):
+            values.append(rate)
+
+    if not values:
+        return None
+
+    if len(values) >= 2:
+        difference = abs(
+            values[0]
+            - values[1]
+        ) / max(
+            values[0],
+            values[1],
+        )
+        if difference > 1e-4:
+            return None
+
+    return float(
+        np.mean(values)
+    )
+
+
+def _quaternion_step_angle_deg(a, b):
+    a = np.asarray(a, dtype=np.float64)
+    b = np.asarray(b, dtype=np.float64)
+    a /= max(float(np.linalg.norm(a)), 1e-12)
+    b /= max(float(np.linalg.norm(b)), 1e-12)
+    dot = abs(float(np.dot(a, b)))
+    dot = max(-1.0, min(1.0, dot))
+    return math.degrees(
+        2.0 * math.acos(dot)
+    )
+
+
+def _rolling_shutter_pair_indices(
+    raw_quaternions,
+    *,
+    max_pairs=3,
+):
+    count = len(raw_quaternions)
+
+    if count < 2:
+        return []
+
+    ranked = [
+        (
+            _quaternion_step_angle_deg(
+                raw_quaternions[index - 1],
+                raw_quaternions[index],
+            ),
+            index,
+        )
+        for index in range(1, count)
+    ]
+    ranked.sort(reverse=True)
+
+    selected = []
+
+    for _angle, index in ranked:
+        if any(
+            abs(index - previous) <= 2
+            for previous in selected
+        ):
+            continue
+
+        selected.append(int(index))
+
+        if len(selected) >= int(max_pairs):
+            break
+
+    return sorted(selected)
+
+
+def _rolling_shutter_candidate_score(
+    frames_by_index,
+    pair_indices,
+):
+    residuals = []
+    spatial_rotation = []
+    roundtrip = []
+    nuisance_scale = []
+
+    for index in pair_indices:
+        previous = frames_by_index.get(int(index - 1))
+        current = frames_by_index.get(int(index))
+
+        if previous is None or current is None:
+            continue
+
+        estimate = _estimate_rigid_motion(
+            previous,
+            current,
+        )
+
+        if estimate is None:
+            residuals.append(6.0)
+            spatial_rotation.append(2.0)
+            roundtrip.append(2.0)
+            nuisance_scale.append(4.0)
+            continue
+
+        residuals.append(
+            float(
+                estimate["median_fit_residual_px"]
+            )
+        )
+        roundtrip.append(
+            float(
+                estimate["median_roundtrip_px"]
+            )
+        )
+        nuisance_scale.append(
+            abs(
+                float(
+                    estimate["nuisance_scale"]
+                )
+                - 1.0
+            )
+            * 100.0
+        )
+
+        disagreement = []
+        for key in (
+            "top_bottom_rotation_difference_deg",
+            "left_right_rotation_difference_deg",
+        ):
+            value = estimate.get(key)
+            if value is not None:
+                disagreement.append(
+                    abs(float(value))
+                )
+
+        spatial_rotation.append(
+            max(
+                disagreement
+                or [0.0]
+            )
+        )
+
+    if not residuals:
+        return math.inf
+
+    return float(
+        np.median(residuals)
+        + 1.8
+        * np.median(spatial_rotation)
+        + 0.25
+        * np.median(roundtrip)
+        + 0.08
+        * np.median(nuisance_scale)
+    )
+
+
+def _auto_calibrate_clip_rolling_shutter(
+    *,
+    source,
+    probe,
+    stream0,
+    mapper,
+    clip,
+    exposure_times,
+    orientation_state,
+    frame_state_provider,
+    panorama_width,
+    panorama_height,
+    output_width,
+    output_height,
+    analysis_width,
+    imu_offset_ms,
+    progress_callback,
+):
+    """
+    Fit signed sensor readout time against the actual source and Project view.
+
+    Candidate readout times are bounded by one source-frame period and include
+    both scan directions. A few high-angular-motion frame pairs are decoded
+    once. Each candidate is re-rendered at analysis resolution from the
+    original two lenses with row-time gyro compensation.
+
+    The score combines rigid-fit residual, spatial rotation disagreement,
+    forward/backward tracking error, and nuisance scale. A non-zero readout is
+    accepted only when it materially beats the zero-readout baseline.
+    """
+    stream = None
+
+    for item in probe.get(
+        "streams",
+        [],
+    ):
+        try:
+            index = int(
+                item.get("index")
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            continue
+
+        if index == int(stream0):
+            stream = item
+            break
+
+    source_rate = _stream_frame_rate(stream)
+
+    if source_rate is None:
+        return RollingShutterCalibration(
+            mode="auto",
+            signed_readout_ms=0.0,
+            reference_offset_ms=0.0,
+            direction="none",
+            source_frame_period_ms=None,
+            baseline_score=None,
+            selected_score=None,
+            improvement_fraction=None,
+            sample_pair_count=0,
+            candidate_scores=tuple(),
+            reason=(
+                "source frame rate unavailable for bounded readout calibration"
+            ),
+        )
+
+    source_period_ms = (
+        1000.0
+        / float(source_rate)
+    )
+
+    pair_indices = _rolling_shutter_pair_indices(
+        orientation_state["raw_quaternions"],
+        max_pairs=3,
+    )
+
+    if not pair_indices:
+        return RollingShutterCalibration(
+            mode="auto",
+            signed_readout_ms=0.0,
+            reference_offset_ms=0.0,
+            direction="none",
+            source_frame_period_ms=source_period_ms,
+            baseline_score=None,
+            selected_score=None,
+            improvement_fraction=None,
+            sample_pair_count=0,
+            candidate_scores=tuple(),
+            reason=(
+                "insufficient motion samples for rolling-shutter calibration"
+            ),
+        )
+
+    _emit(
+        progress_callback,
+        "rolling-shutter-calibration",
+        (
+            "Calibrating source rolling shutter — "
+            f"{clip.id}, {len(pair_indices)} high-motion pair(s)"
+        ),
+        clip_id=clip.id,
+    )
+
+    required_indices = sorted(
+        {
+            int(index)
+            for pair_index in pair_indices
+            for index in (
+                pair_index - 1,
+                pair_index,
+            )
+        }
+    )
+
+    raw_lenses = {}
+
+    for local_index in required_indices:
+        source_time = float(
+            exposure_times[local_index]
+        )
+        lens0, lens1, _streams = decode_lens_pair(
+            source,
+            source_time=source_time,
+            probe=probe,
+        )
+        raw_lenses[int(local_index)] = (
+            lens0,
+            lens1,
+        )
+
+    analysis_width = max(
+        480,
+        min(
+            int(analysis_width),
+            int(output_width),
+        ),
+    )
+    analysis_height = max(
+        270,
+        int(
+            round(
+                float(output_height)
+                * analysis_width
+                / float(output_width)
+            )
+        ),
+    )
+
+    calibration_projector = RectilinearProjector(
+        int(panorama_width),
+        int(panorama_height),
+        analysis_width,
+        analysis_height,
+    )
+    calibration_renderer = DirectLensRenderer(
+        mapper
+    )
+
+    frame_states = {
+        int(index): frame_state_provider(
+            int(index)
+        )
+        for index in required_indices
+    }
+
+    def render_candidate(
+        signed_readout_ms,
+        reference_offset_ms,
+    ):
+        frames = {}
+
+        for local_index in required_indices:
+            (
+                content_rotation,
+                camera,
+            ) = frame_states[int(local_index)]
+
+            map_x, map_y = calibration_projector.map(
+                camera,
+                content_rotation=content_rotation,
+            )
+            correction = build_frame_correction(
+                orientation_state["trajectory"],
+                float(
+                    exposure_times[local_index]
+                ),
+                float(signed_readout_ms),
+                reference_offset_ms=float(
+                    reference_offset_ms
+                ),
+                imu_offset_ms=imu_offset_ms,
+                iterations=2,
+            )
+            maps = calibration_renderer.compose_maps(
+                map_x,
+                map_y,
+                rolling_shutter=correction,
+            )
+            lens0, lens1 = raw_lenses[
+                int(local_index)
+            ]
+            frame = calibration_renderer.render(
+                lens0,
+                lens1,
+                maps,
+            )
+            frames[int(local_index)] = (
+                cv2.cvtColor(
+                    frame,
+                    cv2.COLOR_BGR2GRAY,
+                )
+            )
+
+        return _rolling_shutter_candidate_score(
+            frames,
+            pair_indices,
+        )
+
+    scores = {
+        (
+            0.0,
+            0.0,
+        ): render_candidate(
+            0.0,
+            0.0,
+        )
+    }
+
+    # The source PTS/per-frame quaternion is an excellent anchor, but the
+    # sensor scan midpoint does not have to coincide exactly with that anchor.
+    # Search a bounded timing offset as well as signed readout duration.
+    offset_candidates = (
+        -0.25
+        * source_period_ms,
+        0.0,
+        0.25
+        * source_period_ms,
+    )
+
+    for signed_readout in candidate_signed_readouts(
+        source_period_ms
+    ):
+        if abs(
+            signed_readout
+        ) <= 1e-9:
+            continue
+
+        for reference_offset in offset_candidates:
+            key = (
+                float(
+                    signed_readout
+                ),
+                float(
+                    reference_offset
+                ),
+            )
+            scores[
+                key
+            ] = render_candidate(
+                key[
+                    0
+                ],
+                key[
+                    1
+                ],
+            )
+
+    best = min(
+        scores,
+        key=scores.get,
+    )
+
+    if abs(
+        best[
+            0
+        ]
+    ) > 1e-9:
+        readout_step = (
+            0.06
+            * source_period_ms
+        )
+        offset_step = (
+            0.08
+            * source_period_ms
+        )
+
+        for readout_delta in (
+            -readout_step,
+            0.0,
+            readout_step,
+        ):
+            for offset_delta in (
+                -offset_step,
+                0.0,
+                offset_step,
+            ):
+                signed = max(
+                    -0.97
+                    * source_period_ms,
+                    min(
+                        0.97
+                        * source_period_ms,
+                        best[
+                            0
+                        ]
+                        + readout_delta,
+                    ),
+                )
+                offset = max(
+                    -0.45
+                    * source_period_ms,
+                    min(
+                        0.45
+                        * source_period_ms,
+                        best[
+                            1
+                        ]
+                        + offset_delta,
+                    ),
+                )
+                key = (
+                    float(
+                        signed
+                    ),
+                    float(
+                        offset
+                    ),
+                )
+
+                if key not in scores:
+                    scores[
+                        key
+                    ] = render_candidate(
+                        key[
+                            0
+                        ],
+                        key[
+                            1
+                        ],
+                    )
+
+    calibration = choose_calibration(
+        scores,
+        source_frame_period_ms=source_period_ms,
+        sample_pair_count=len(pair_indices),
+        minimum_improvement_fraction=0.05,
+    )
+
+    _emit(
+        progress_callback,
+        "rolling-shutter-calibration",
+        (
+            "Rolling shutter "
+            f"{clip.id} — "
+            f"{abs(calibration.signed_readout_ms):.2f} ms "
+            f"{calibration.direction}, "
+            f"reference offset {calibration.reference_offset_ms:+.2f} ms"
+        ),
+        clip_id=clip.id,
+        rolling_shutter=calibration.to_dict(),
+    )
+
+    return calibration
+
+
 def _render_video_stream(
     project,
     spans,
@@ -750,6 +1326,8 @@ def _render_video_stream(
     level_horizon,
     level_strength,
     level_smoothing_ms,
+    stabilization_amount,
+    stabilization_smoothing_ms,
     imu_source,
     imu_offset_ms,
     crf,
@@ -758,7 +1336,14 @@ def _render_video_stream(
     vaapi_device,
     projection_prefetch,
     render_pipeline,
-    progress_callback,
+    rolling_shutter_mode="auto",
+    rolling_shutter_readout_ms=None,
+    rolling_shutter_reference_offset_ms=0.0,
+    rolling_shutter_direction="top-to-bottom",
+    rolling_shutter_analysis_width=640,
+    rolling_shutter_calibrations=None,
+    visual_camera_offsets=None,
+    progress_callback=None,
 ):
     encoder = subprocess.Popen(
         _video_encoder_command(
@@ -784,6 +1369,60 @@ def _render_video_stream(
     if render_pipeline not in ("panorama", "direct"):
         raise ValueError("render_pipeline must be 'panorama' or 'direct'")
 
+    rolling_shutter_mode = str(
+        rolling_shutter_mode
+    ).lower()
+
+    if rolling_shutter_mode not in (
+        "auto",
+        "off",
+        "manual",
+    ):
+        raise ValueError(
+            "rolling_shutter_mode must be 'auto', 'off', or 'manual'"
+        )
+
+    rolling_shutter_direction = str(
+        rolling_shutter_direction
+    ).lower()
+
+    if rolling_shutter_direction not in (
+        "top-to-bottom",
+        "bottom-to-top",
+    ):
+        raise ValueError(
+            "rolling_shutter_direction must be 'top-to-bottom' "
+            "or 'bottom-to-top'"
+        )
+
+    if rolling_shutter_mode == "manual":
+        if rolling_shutter_readout_ms is None:
+            raise ValueError(
+                "manual rolling-shutter mode requires "
+                "rolling_shutter_readout_ms"
+            )
+
+        rolling_shutter_readout_ms = float(
+            rolling_shutter_readout_ms
+        )
+
+        if not 0.0 <= rolling_shutter_readout_ms <= 40.0:
+            raise ValueError(
+                "rolling_shutter_readout_ms must be between 0 and 40"
+            )
+
+    elif rolling_shutter_readout_ms is not None:
+        rolling_shutter_readout_ms = float(
+            rolling_shutter_readout_ms
+        )
+
+    rolling_shutter_analysis_width = max(
+        480,
+        int(
+            rolling_shutter_analysis_width
+        ),
+    )
+
     video_profiler = StageProfiler()
     projection_profiler = StageProfiler()
     direct_profiler = StageProfiler()
@@ -800,26 +1439,23 @@ def _render_video_stream(
         clip,
         local_index,
         exposure_times,
-        leveled_gravity,
+        orientation_state,
+        project_frame_index,
     ):
         content_rotation = None
 
-        if level_horizon:
-            with video_profiler.measure(
-                "horizon_rotation_math"
-            ):
-                (
-                    content_rotation,
-                    _diagnostics,
-                ) = (
-                    horizon_correction_from_gravity(
-                        leveled_gravity[
-                            local_index
-                        ],
-                        strength=(
-                            level_strength
-                        ),
-                    )
+        if level_horizon or stabilization_amount > 1e-9:
+            with video_profiler.measure("stabilization_rotation_math"):
+                content_rotation, _diagnostics = stabilized_horizon_rotation(
+                    raw_quaternion=orientation_state["raw_quaternions"][local_index],
+                    smoothed_quaternion=orientation_state["smoothed_quaternions"][local_index],
+                    leveled_gravity=(
+                        orientation_state["leveled_gravity"][local_index]
+                        if level_horizon else None
+                    ),
+                    stabilization_amount=stabilization_amount,
+                    level_horizon=level_horizon,
+                    level_strength=level_strength,
                 )
 
         source_time = float(
@@ -844,9 +1480,85 @@ def _render_video_stream(
                 )
             )
 
+        camera = sample.camera
+
+        if visual_camera_offsets is not None:
+            offset = np.asarray(
+                visual_camera_offsets[
+                    int(project_frame_index)
+                ],
+                dtype=np.float64,
+            )
+            horizontal_fov = math.radians(
+                float(camera.fov_deg)
+            )
+            focal_pixels = (
+                float(profile.width)
+                / (
+                    2.0
+                    * math.tan(
+                        horizontal_fov
+                        / 2.0
+                    )
+                )
+            )
+            yaw_offset_deg = -math.degrees(
+                math.atan2(
+                    float(offset[0]),
+                    focal_pixels,
+                )
+            )
+            pitch_offset_deg = math.degrees(
+                math.atan2(
+                    float(offset[1]),
+                    focal_pixels,
+                )
+            )
+            yaw = (
+                (
+                    float(camera.yaw_deg)
+                    + yaw_offset_deg
+                    + 180.0
+                )
+                % 360.0
+            ) - 180.0
+            pitch = max(
+                -89.8,
+                min(
+                    89.8,
+                    float(camera.pitch_deg)
+                    + pitch_offset_deg,
+                ),
+            )
+            roll_offset_deg = (
+                float(offset[2])
+                if offset.size >= 3
+                else 0.0
+            )
+            roll = (
+                (
+                    float(
+                        getattr(
+                            camera,
+                            "roll_deg",
+                            0.0,
+                        )
+                    )
+                    + roll_offset_deg
+                    + 180.0
+                )
+                % 360.0
+            ) - 180.0
+            camera = VirtualCamera(
+                yaw_deg=float(yaw),
+                pitch_deg=float(pitch),
+                fov_deg=float(camera.fov_deg),
+                roll_deg=float(roll),
+            )
+
         return (
             content_rotation,
-            sample.camera,
+            camera,
         )
 
     try:
@@ -1027,26 +1739,262 @@ def _render_video_stream(
                     "Internal export exposure-time count mismatch"
                 )
 
-            leveled_gravity = None
+            orientation_state = None
 
-            if level_horizon:
-                with video_profiler.measure(
-                    "clip_setup_imu"
-                ):
-                    leveled_gravity = (
-                        _orientation_gravity_for_times(
-                            source,
-                            exposure_times,
-                            fps=profile.fps,
-                            level_smoothing_ms=(
-                                level_smoothing_ms
-                            ),
-                            imu_source=imu_source,
-                            imu_offset_ms=(
-                                imu_offset_ms
-                            ),
+            if (
+                level_horizon
+                or stabilization_amount > 1e-9
+                or (
+                    render_pipeline == "direct"
+                    and str(
+                        rolling_shutter_mode
+                    ).lower()
+                    != "off"
+                )
+            ):
+                with video_profiler.measure("clip_setup_imu"):
+                    orientation_state = _orientation_state_for_times(
+                        source, exposure_times, fps=profile.fps,
+                        level_smoothing_ms=level_smoothing_ms,
+                        stabilization_amount=stabilization_amount,
+                        stabilization_smoothing_ms=stabilization_smoothing_ms,
+                        imu_source=imu_source, imu_offset_ms=imu_offset_ms,
+                    )
+
+            rolling_calibration = RollingShutterCalibration(
+                mode="off",
+                signed_readout_ms=0.0,
+                reference_offset_ms=0.0,
+                direction="none",
+                source_frame_period_ms=None,
+                baseline_score=None,
+                selected_score=None,
+                improvement_fraction=None,
+                sample_pair_count=0,
+                candidate_scores=tuple(),
+                reason="rolling-shutter correction disabled",
+            )
+
+            rolling_mode = str(
+                rolling_shutter_mode
+            ).lower()
+
+            if render_pipeline == "direct":
+                cached = (
+                    rolling_shutter_calibrations.get(
+                        clip.id
+                    )
+                    if rolling_shutter_calibrations
+                    else None
+                )
+
+                if cached is not None:
+                    signed = float(
+                        cached.get(
+                            "signed_readout_ms",
+                            0.0,
                         )
                     )
+                    rolling_calibration = RollingShutterCalibration(
+                        mode=str(
+                            cached.get(
+                                "mode",
+                                rolling_mode,
+                            )
+                        ),
+                        signed_readout_ms=signed,
+                        reference_offset_ms=float(
+                            cached.get(
+                                "reference_offset_ms",
+                                0.0,
+                            )
+                        ),
+                        direction=(
+                            "top-to-bottom"
+                            if signed > 0.0
+                            else (
+                                "bottom-to-top"
+                                if signed < 0.0
+                                else "none"
+                            )
+                        ),
+                        source_frame_period_ms=(
+                            cached.get(
+                                "source_frame_period_ms"
+                            )
+                        ),
+                        baseline_score=(
+                            cached.get(
+                                "baseline_score"
+                            )
+                        ),
+                        selected_score=(
+                            cached.get(
+                                "selected_score"
+                            )
+                        ),
+                        improvement_fraction=(
+                            cached.get(
+                                "improvement_fraction"
+                            )
+                        ),
+                        sample_pair_count=int(
+                            cached.get(
+                                "sample_pair_count",
+                                0,
+                            )
+                        ),
+                        candidate_scores=tuple(
+                            (
+                                float(
+                                    item[
+                                        "signed_readout_ms"
+                                    ]
+                                ),
+                                float(
+                                    item.get(
+                                        "reference_offset_ms",
+                                        0.0,
+                                    )
+                                ),
+                                float(
+                                    item[
+                                        "score"
+                                    ]
+                                ),
+                            )
+                            for item in cached.get(
+                                "candidate_scores",
+                                []
+                            )
+                        ),
+                        reason=(
+                            "reused first-pass rolling-shutter calibration"
+                        ),
+                    )
+
+                elif rolling_mode == "manual":
+                    readout = abs(
+                        float(
+                            rolling_shutter_readout_ms
+                        )
+                    )
+                    signed = (
+                        readout
+                        if str(
+                            rolling_shutter_direction
+                        )
+                        == "top-to-bottom"
+                        else -readout
+                    )
+                    rolling_calibration = RollingShutterCalibration(
+                        mode="manual",
+                        signed_readout_ms=signed,
+                        reference_offset_ms=float(
+                            rolling_shutter_reference_offset_ms
+                        ),
+                        direction=str(
+                            rolling_shutter_direction
+                        ),
+                        source_frame_period_ms=None,
+                        baseline_score=None,
+                        selected_score=None,
+                        improvement_fraction=None,
+                        sample_pair_count=0,
+                        candidate_scores=tuple(),
+                        reason=(
+                            "explicit User rolling-shutter readout"
+                        ),
+                    )
+
+                elif rolling_mode == "auto":
+                    with video_profiler.measure(
+                        "rolling_shutter_calibration"
+                    ):
+                        rolling_calibration = (
+                            _auto_calibrate_clip_rolling_shutter(
+                                source=source,
+                                probe=probe,
+                                stream0=stream0,
+                                mapper=mapper,
+                                clip=clip,
+                                exposure_times=(
+                                    exposure_times
+                                ),
+                                orientation_state=(
+                                    orientation_state
+                                ),
+                                frame_state_provider=(
+                                    lambda index: projection_state(
+                                        clip,
+                                        int(index),
+                                        exposure_times,
+                                        orientation_state,
+                                        group.first_frame_index
+                                        + int(index),
+                                    )
+                                ),
+                                panorama_width=(
+                                    panorama_width
+                                ),
+                                panorama_height=(
+                                    panorama_height
+                                ),
+                                output_width=(
+                                    profile.width
+                                ),
+                                output_height=(
+                                    profile.height
+                                ),
+                                analysis_width=(
+                                    rolling_shutter_analysis_width
+                                ),
+                                imu_offset_ms=(
+                                    imu_offset_ms
+                                ),
+                                progress_callback=(
+                                    progress_callback
+                                ),
+                            )
+                        )
+
+            def rolling_frame_correction(
+                local_index,
+            ):
+                if (
+                    render_pipeline
+                    != "direct"
+                    or abs(
+                        float(
+                            rolling_calibration.signed_readout_ms
+                        )
+                    )
+                    <= 1e-9
+                ):
+                    return None
+
+                return build_frame_correction(
+                    orientation_state[
+                        "trajectory"
+                    ],
+                    float(
+                        exposure_times[
+                            int(
+                                local_index
+                            )
+                        ]
+                    ),
+                    float(
+                        rolling_calibration.signed_readout_ms
+                    ),
+                    reference_offset_ms=float(
+                        rolling_calibration.reference_offset_ms
+                    ),
+                    imu_offset_ms=(
+                        imu_offset_ms
+                    ),
+                    iterations=2,
+                )
 
             with video_profiler.measure(
                 "decoder_startup"
@@ -1095,7 +2043,8 @@ def _render_video_stream(
                     enabled=(projection_prefetch),
                 ) as map_prefetcher:
                     first_rotation, first_camera = projection_state(
-                        clip, 0, exposure_times, leveled_gravity
+                        clip, 0, exposure_times, orientation_state,
+                        group.first_frame_index,
                     )
                     map_prefetcher.submit(first_camera, first_rotation)
                     try:
@@ -1125,7 +2074,8 @@ def _render_video_stream(
                             next_index=local_index+1
                             if next_index < group.frame_count:
                                 next_rotation,next_camera=projection_state(
-                                    clip,next_index,exposure_times,leveled_gravity
+                                    clip, next_index, exposure_times, orientation_state,
+                                    group.first_frame_index + next_index,
                                 )
                                 map_prefetcher.submit(next_camera,next_rotation)
 
@@ -1173,9 +2123,18 @@ def _render_video_stream(
                     enabled=(projection_prefetch),
                 ) as direct_prefetcher:
                     first_rotation, first_camera = projection_state(
-                        clip, 0, exposure_times, leveled_gravity
+                        clip, 0, exposure_times, orientation_state,
+                        group.first_frame_index,
                     )
-                    direct_prefetcher.submit(first_camera, first_rotation)
+                    direct_prefetcher.submit(
+                        first_camera,
+                        first_rotation,
+                        rolling_shutter=(
+                            rolling_frame_correction(
+                                0
+                            )
+                        ),
+                    )
                     try:
                         for local_index in range(group.frame_count):
                             with video_profiler.measure("decoder_read_wait"):
@@ -1203,9 +2162,18 @@ def _render_video_stream(
                             next_index=local_index+1
                             if next_index < group.frame_count:
                                 next_rotation,next_camera=projection_state(
-                                    clip,next_index,exposure_times,leveled_gravity
+                                    clip, next_index, exposure_times, orientation_state,
+                                    group.first_frame_index + next_index,
                                 )
-                                direct_prefetcher.submit(next_camera,next_rotation)
+                                direct_prefetcher.submit(
+                                    next_camera,
+                                    next_rotation,
+                                    rolling_shutter=(
+                                        rolling_frame_correction(
+                                            next_index
+                                        )
+                                    ),
+                                )
 
                             with video_profiler.measure("direct_lens_render"):
                                 with direct_profiler.measure("lens_remap_blend"):
@@ -1266,6 +2234,14 @@ def _render_video_stream(
                     ),
                     "source_pts": (
                         pts_diagnostics
+                    ),
+                    "stabilization": (
+                        orientation_state.get("diagnostics")
+                        if orientation_state
+                        else None
+                    ),
+                    "rolling_shutter": (
+                        rolling_calibration.to_dict()
                     ),
                     "factory_mapping": (
                         mapper.diagnostics.__dict__
@@ -1354,6 +2330,31 @@ def _render_video_stream(
             ),
         },
         "render_pipeline": str(render_pipeline),
+        "rolling_shutter_policy": {
+            "mode": str(
+                rolling_shutter_mode
+            ),
+            "manual_readout_ms": (
+                float(
+                    rolling_shutter_readout_ms
+                )
+                if rolling_shutter_readout_ms
+                is not None
+                else None
+            ),
+            "manual_reference_offset_ms": float(
+                rolling_shutter_reference_offset_ms
+            ),
+            "manual_direction": str(
+                rolling_shutter_direction
+            ),
+            "analysis_width": int(
+                rolling_shutter_analysis_width
+            ),
+            "direct_source_row_time_rectification": bool(
+                render_pipeline == "direct"
+            ),
+        },
         "projection_pipeline": (
             "factory-panorama -> composed-horizon-camera -> rectilinear"
             if render_pipeline == "panorama"
@@ -1774,14 +2775,30 @@ def export_project_video(
     level_horizon=True,
     level_strength=1.0,
     level_smoothing_ms=100.0,
+    stabilization_amount=None,
+    stabilization_smoothing_ms=400.0,
     imu_source="highrate",
     imu_offset_ms=0.0,
-    crf=18,
-    preset="medium",
+    output_resolution=None,
+    output_quality=None,
+    crf=None,
+    preset=None,
     decoder="auto",
     vaapi_device=None,
     projection_prefetch=True,
     render_pipeline="panorama",
+    visual_stabilization=False,
+    visual_stabilization_mode="spherical",
+    stabilization_crop_percent=25.0,
+    visual_analysis_width=640,
+    extreme_stabilization_passes=3,
+    locked_stabilization_passes=2,
+    spherical_local_mesh=False,
+    rolling_shutter_mode="auto",
+    rolling_shutter_readout_ms=None,
+    rolling_shutter_reference_offset_ms=0.0,
+    rolling_shutter_direction="top-to-bottom",
+    rolling_shutter_analysis_width=640,
     progress_callback=None,
 ):
     project_path = Path(
@@ -1838,14 +2855,130 @@ def export_project_video(
         project_path
     )
 
+    profile = output_profile_for_project(
+        project,
+        resolution=(
+            output_resolution
+        ),
+    )
+    quality_profile = export_quality_for_project(
+        project,
+        quality=(
+            output_quality
+        ),
+    )
+    crf_overridden = (
+        crf is not None
+    )
+    preset_overridden = (
+        preset is not None
+    )
+    crf = (
+        quality_profile.crf
+        if crf is None
+        else int(crf)
+    )
+    preset = (
+        quality_profile.preset
+        if preset is None
+        else str(preset)
+    )
+    if not 0 <= int(crf) <= 51:
+        raise ValueError(
+            "crf must be between 0 and 51"
+        )
+
+    if stabilization_amount is None:
+        stabilization_amount = float(project.stabilization_amount)
+    else:
+        stabilization_amount = float(stabilization_amount)
+    if not 0.0 <= stabilization_amount <= 1.0:
+        raise ValueError("stabilization_amount must be between 0 and 1")
+    stabilization_smoothing_ms = max(0.0, float(stabilization_smoothing_ms))
+    visual_stabilization_mode = str(
+        visual_stabilization_mode
+    ).lower()
+    if visual_stabilization_mode not in (
+        "standard",
+        "extreme",
+        "locked",
+        "anchored",
+        "spherical",
+    ):
+        raise ValueError(
+            "visual_stabilization_mode must be 'standard', 'extreme', "
+            "'locked', 'anchored', or 'spherical'"
+        )
+
+    stabilization_crop_percent = float(
+        stabilization_crop_percent
+    )
+    max_crop = (
+        60.0
+        if visual_stabilization_mode
+        in (
+            "extreme",
+            "locked",
+        )
+        else (
+            35.0
+            if visual_stabilization_mode
+            in (
+                "anchored",
+                "spherical",
+            )
+            else 40.0
+        )
+    )
+    if not 0.0 <= stabilization_crop_percent <= max_crop:
+        raise ValueError(
+            "stabilization_crop_percent must be between 0 and "
+            f"{max_crop:.0f} for {visual_stabilization_mode} mode"
+        )
+
+    visual_analysis_width = max(
+        160,
+        int(
+            visual_analysis_width
+        ),
+    )
+    extreme_stabilization_passes = max(
+        1,
+        min(
+            4,
+            int(
+                extreme_stabilization_passes
+            ),
+        ),
+    )
+    locked_stabilization_passes = max(
+        1,
+        min(
+            3,
+            int(
+                locked_stabilization_passes
+            ),
+        ),
+    )
+    visual_stabilization = bool(
+        visual_stabilization
+        and stabilization_amount > 1e-9
+        and (
+            visual_stabilization_mode
+            == "spherical"
+            or stabilization_crop_percent
+            > 0.0
+        )
+    )
+    spherical_local_mesh = bool(
+        spherical_local_mesh
+    )
+
     if not project.clips:
         raise ValueError(
             "Project has no Clips to export"
         )
 
-    profile = output_profile_for_project(
-        project
-    )
     output.parent.mkdir(
         parents=True,
         exist_ok=True,
@@ -1939,9 +3072,17 @@ def export_project_video(
             temp_dir = Path(
                 temp_dir_value
             )
+            video_rendered = (
+                temp_dir
+                / "project_video_rendered.mp4"
+            )
             video_only = (
                 temp_dir
                 / "project_video.mp4"
+            )
+            video_spherical = (
+                temp_dir
+                / "project_video_spherical.mp4"
             )
             audio_only = (
                 temp_dir
@@ -1957,7 +3098,7 @@ def export_project_video(
                         spans,
                         groups,
                         probes,
-                        video_only,
+                        video_rendered,
                         profile=profile,
                         panorama_width=(
                             panorama_width
@@ -1974,13 +3115,23 @@ def export_project_video(
                         level_smoothing_ms=(
                             level_smoothing_ms
                         ),
+                        stabilization_amount=(
+                            stabilization_amount
+                        ),
+                        stabilization_smoothing_ms=(
+                            stabilization_smoothing_ms
+                        ),
                         imu_source=(
                             imu_source
                         ),
                         imu_offset_ms=(
                             imu_offset_ms
                         ),
-                        crf=crf,
+                        crf=(
+                            min(int(crf), 12)
+                            if visual_stabilization
+                            else crf
+                        ),
                         preset=preset,
                         decoder_mode=(
                             decoder
@@ -1994,10 +3145,378 @@ def export_project_video(
                         render_pipeline=(
                             render_pipeline
                         ),
+                        rolling_shutter_mode=(
+                            rolling_shutter_mode
+                        ),
+                        rolling_shutter_readout_ms=(
+                            rolling_shutter_readout_ms
+                        ),
+                        rolling_shutter_reference_offset_ms=(
+                            rolling_shutter_reference_offset_ms
+                        ),
+                        rolling_shutter_direction=(
+                            rolling_shutter_direction
+                        ),
+                        rolling_shutter_analysis_width=(
+                            rolling_shutter_analysis_width
+                        ),
+                        rolling_shutter_calibrations=None,
                         progress_callback=(
                             progress_callback
                         ),
                     )
+                )
+
+            rolling_shutter_calibrations = {
+                str(
+                    clip_summary.get(
+                        "clip_id"
+                    )
+                ): (
+                    clip_summary.get(
+                        "rolling_shutter"
+                    )
+                    or {}
+                )
+                for clip_summary in video_summary.get(
+                    "clips",
+                    []
+                )
+                if clip_summary.get(
+                    "clip_id"
+                )
+            }
+
+            visual_summary = {
+                "enabled": False,
+                "mode": str(
+                    visual_stabilization_mode
+                ),
+                "crop_percent": float(
+                    stabilization_crop_percent
+                ),
+            }
+            if visual_stabilization:
+                segments = [
+                    (
+                        int(
+                            group.first_frame_index
+                        ),
+                        int(
+                            group.frame_count
+                        ),
+                    )
+                    for group in groups
+                ]
+                with overall_profiler.measure(
+                    "visual_residual_stabilization"
+                ):
+                    if (
+                        visual_stabilization_mode
+                        == "spherical"
+                    ):
+                        spherical_plan = (
+                            analyze_spherical_camera_stabilization(
+                                video_rendered,
+                                segments,
+                                amount=(
+                                    stabilization_amount
+                                ),
+                                analysis_width=max(
+                                    960,
+                                    visual_analysis_width,
+                                ),
+                            )
+                        )
+
+                        _emit(
+                            progress_callback,
+                            "spherical-visual-rerender",
+                            "Re-rendering from the 360 sphere with visual camera lock",
+                        )
+
+                        with overall_profiler.measure(
+                            "spherical_visual_rerender"
+                        ):
+                            first_video_summary = video_summary
+                            video_summary = (
+                                _render_video_stream(
+                                    project,
+                                    spans,
+                                    groups,
+                                    probes,
+                                    video_spherical,
+                                    profile=profile,
+                                    panorama_width=(
+                                        panorama_width
+                                    ),
+                                    panorama_height=(
+                                        panorama_height
+                                    ),
+                                    level_horizon=(
+                                        level_horizon
+                                    ),
+                                    level_strength=(
+                                        level_strength
+                                    ),
+                                    level_smoothing_ms=(
+                                        level_smoothing_ms
+                                    ),
+                                    stabilization_amount=(
+                                        stabilization_amount
+                                    ),
+                                    stabilization_smoothing_ms=(
+                                        stabilization_smoothing_ms
+                                    ),
+                                    imu_source=(
+                                        imu_source
+                                    ),
+                                    imu_offset_ms=(
+                                        imu_offset_ms
+                                    ),
+                                    crf=min(
+                                        int(crf),
+                                        12,
+                                    ),
+                                    preset=preset,
+                                    decoder_mode=(
+                                        decoder
+                                    ),
+                                    vaapi_device=(
+                                        vaapi_device
+                                    ),
+                                    projection_prefetch=(
+                                        projection_prefetch
+                                    ),
+                                    render_pipeline=(
+                                        render_pipeline
+                                    ),
+                                    rolling_shutter_mode=(
+                                        rolling_shutter_mode
+                                    ),
+                                    rolling_shutter_readout_ms=(
+                                        rolling_shutter_readout_ms
+                                    ),
+                                    rolling_shutter_reference_offset_ms=(
+                                        rolling_shutter_reference_offset_ms
+                                    ),
+                                    rolling_shutter_direction=(
+                                        rolling_shutter_direction
+                                    ),
+                                    rolling_shutter_analysis_width=(
+                                        rolling_shutter_analysis_width
+                                    ),
+                                    rolling_shutter_calibrations=(
+                                        rolling_shutter_calibrations
+                                    ),
+                                    visual_camera_offsets=(
+                                        spherical_plan.pixel_corrections
+                                    ),
+                                    progress_callback=(
+                                        progress_callback
+                                    ),
+                                )
+                            )
+
+                        # 0.35 deliberately keeps the default spherical
+                        # result rigid. The 0.34 local mesh could re-introduce
+                        # spatially varying rotation/shear that looked like
+                        # rubber wobble on walking footage. The mesh remains
+                        # available as an explicit diagnostic/advanced option.
+                        if spherical_local_mesh:
+                            local_budget = min(
+                                float(
+                                    stabilization_crop_percent
+                                ),
+                                6.0,
+                            )
+                            local_summary = (
+                                stabilize_rendered_video_anchored(
+                                    video_spherical,
+                                    video_only,
+                                    segments,
+                                    amount=min(
+                                        float(
+                                            stabilization_amount
+                                        ),
+                                        0.45,
+                                    ),
+                                    max_crop_percent=(
+                                        local_budget
+                                    ),
+                                    analysis_width=max(
+                                        960,
+                                        visual_analysis_width,
+                                    ),
+                                    grid_rows=4,
+                                    grid_cols=6,
+                                    global_authority=0.0,
+                                    crf=crf,
+                                    preset=preset,
+                                    progress_callback=(
+                                        progress_callback
+                                    ),
+                                )
+                            )
+                        else:
+                            shutil.copy2(
+                                video_spherical,
+                                video_only,
+                            )
+                            local_budget = 0.0
+                            local_summary = {
+                                "enabled": False,
+                                "reason": (
+                                    "disabled by default to preserve rigid "
+                                    "spherical geometry and avoid mesh wobble"
+                                ),
+                            }
+
+                        visual_summary = {
+                            "algorithm": (
+                                "spherical-rigid-3axis-visual-lock-v2"
+                            ),
+                            "mode": "spherical",
+                            "global_correction": (
+                                spherical_plan.diagnostics
+                            ),
+                            "local_residual": (
+                                local_summary
+                            ),
+                            "global_crop_percent": 0.0,
+                            "spherical_local_mesh_enabled": bool(
+                                spherical_local_mesh
+                            ),
+                            "local_max_crop_budget_percent": float(
+                                local_budget
+                            ),
+                            "initial_render_performance": (
+                                first_video_summary.get(
+                                    "stage_timings",
+                                    {}
+                                )
+                            ),
+                        }
+                    elif (
+                        visual_stabilization_mode
+                        == "anchored"
+                    ):
+                        visual_summary = (
+                            stabilize_rendered_video_anchored(
+                                video_rendered,
+                                video_only,
+                                segments,
+                                amount=(
+                                    stabilization_amount
+                                ),
+                                max_crop_percent=(
+                                    stabilization_crop_percent
+                                ),
+                                analysis_width=max(
+                                    960,
+                                    visual_analysis_width,
+                                ),
+                                grid_rows=4,
+                                grid_cols=6,
+                                crf=crf,
+                                preset=preset,
+                                progress_callback=(
+                                    progress_callback
+                                ),
+                            )
+                        )
+                    elif (
+                        visual_stabilization_mode
+                        == "locked"
+                    ):
+                        visual_summary = (
+                            stabilize_rendered_video_locked(
+                                video_rendered,
+                                video_only,
+                                segments,
+                                amount=(
+                                    stabilization_amount
+                                ),
+                                crop_percent=(
+                                    stabilization_crop_percent
+                                ),
+                                analysis_width=max(
+                                    960,
+                                    visual_analysis_width,
+                                ),
+                                passes=(
+                                    locked_stabilization_passes
+                                ),
+                                crf=crf,
+                                preset=preset,
+                                progress_callback=(
+                                    progress_callback
+                                ),
+                            )
+                        )
+                    elif (
+                        visual_stabilization_mode
+                        == "extreme"
+                    ):
+                        visual_summary = (
+                            stabilize_rendered_video_extreme(
+                                video_rendered,
+                                video_only,
+                                segments,
+                                amount=(
+                                    stabilization_amount
+                                ),
+                                crop_percent=(
+                                    stabilization_crop_percent
+                                ),
+                                analysis_width=max(
+                                    960,
+                                    visual_analysis_width,
+                                ),
+                                passes=(
+                                    extreme_stabilization_passes
+                                ),
+                                crf=crf,
+                                preset=preset,
+                                progress_callback=(
+                                    progress_callback
+                                ),
+                            )
+                        )
+                    else:
+                        visual_summary = (
+                            stabilize_rendered_video(
+                                video_rendered,
+                                video_only,
+                                segments,
+                                amount=(
+                                    stabilization_amount
+                                ),
+                                crop_percent=(
+                                    stabilization_crop_percent
+                                ),
+                                analysis_width=(
+                                    visual_analysis_width
+                                ),
+                                crf=crf,
+                                preset=preset,
+                                progress_callback=(
+                                    progress_callback
+                                ),
+                            )
+                        )
+                    visual_summary[
+                        "enabled"
+                    ] = True
+                    visual_summary[
+                        "mode"
+                    ] = str(
+                        visual_stabilization_mode
+                    )
+            else:
+                shutil.copy2(
+                    video_rendered,
+                    video_only,
                 )
 
             with overall_profiler.measure(
@@ -2189,8 +3708,38 @@ def export_project_video(
                 project.camera_motion_strength
             ),
         },
+        "stabilization": {
+            "amount": float(stabilization_amount),
+            "amount_percent": float(stabilization_amount * 100.0),
+            "algorithm": "adaptive-highrate-v1",
+            "mode": "native-imu-adaptive-3axis-plus-horizon",
+            "trajectory_sampling": "native-imu-then-exposure-time-slerp",
+            "visual_residual": visual_summary,
+        },
         "projection_prefetch": bool(projection_prefetch),
         "render_pipeline": str(render_pipeline),
+        "rolling_shutter": {
+            "mode": str(
+                rolling_shutter_mode
+            ),
+            "manual_readout_ms": (
+                float(
+                    rolling_shutter_readout_ms
+                )
+                if rolling_shutter_readout_ms
+                is not None
+                else None
+            ),
+            "manual_reference_offset_ms": float(
+                rolling_shutter_reference_offset_ms
+            ),
+            "direction": str(
+                rolling_shutter_direction
+            ),
+            "calibrations": (
+                rolling_shutter_calibrations
+            ),
+        },
         "decoder": {
             "requested": str(
                 decoder
@@ -2205,11 +3754,18 @@ def export_project_video(
         },
         "encoder": {
             "codec": "libx264",
+            "quality": quality_profile.to_dict(),
             "crf": int(
                 crf
             ),
+            "crf_override": bool(
+                crf_overridden
+            ),
             "preset": str(
                 preset
+            ),
+            "preset_override": bool(
+                preset_overridden
             ),
         },
         "frame_groups": [
