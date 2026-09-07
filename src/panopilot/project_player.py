@@ -37,7 +37,7 @@ from .cache import (
     ensure_preview_cache,
 )
 from .loading import run_with_loading_screen
-from .project import Project, load_project
+from .project import Project, assert_project_sources, load_project
 from .timeline import (
     ClipTimelineSpan,
     build_project_timeline,
@@ -65,6 +65,7 @@ class ProjectPlaybackState:
     camera_mode: str
     camera_yaw_deg: float
     camera_pitch_deg: float
+    camera_roll_deg: float
     camera_fov_deg: float
 
     def to_dict(self):
@@ -93,6 +94,9 @@ class ProjectPlaybackState:
                 ),
                 "pitch_deg": float(
                     self.camera_pitch_deg
+                ),
+                "roll_deg": float(
+                    self.camera_roll_deg
                 ),
                 "fov_deg": float(
                     self.camera_fov_deg
@@ -216,6 +220,9 @@ def project_state_at(
         ),
         camera_pitch_deg=float(
             sample.camera.pitch_deg
+        ),
+        camera_roll_deg=float(
+            sample.camera.roll_deg
         ),
         camera_fov_deg=float(
             sample.camera.fov_deg
@@ -366,6 +373,7 @@ def run_project_preview(
         raise ValueError(
             "Project has no Clips to preview"
         )
+    assert_project_sources(project)
 
     def prepare(progress):
         return prepare_project_preview(
@@ -831,6 +839,9 @@ def run_project_preview(
                 ),
                 camera_pitch_deg=float(
                     sample.camera.pitch_deg
+                ),
+                camera_roll_deg=float(
+                    sample.camera.roll_deg
                 ),
                 camera_fov_deg=float(
                     sample.camera.fov_deg

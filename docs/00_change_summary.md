@@ -1,7 +1,7 @@
 # PanoPilot — Documentation Change Summary
 
 Status: Updated  
-Release alignment: PanoPilot 0.37.0
+Release alignment: PanoPilot 0.41.0
 Date: 2026-09-06
 
 ## Documents
@@ -242,3 +242,40 @@ unimplemented end-to-end capability.
 - Standard / High / Very High H.264 quality presets;
 - schema-v6 persistence and legacy migration to 1080p / High;
 - Organizer controls and CLI export overrides.
+
+
+## PanoPilot 0.38 additions
+
+- export confirmation summary;
+- determinate progress with elapsed/remaining-time presentation;
+- candidate-level rolling-shutter calibration progress;
+- render-pass-aware progress events;
+- final file-size reporting;
+- completion screen and Open Folder action;
+- recoverable desktop export-error presentation.
+
+
+## PanoPilot 0.39 additions
+
+- on-screen 360 View Direction arrow pad;
+- fine/normal/coarse deterministic angular nudge steps;
+- Shift+Arrow keyboard equivalents;
+- press-and-hold continuous directional adjustment;
+- transient navigation semantics preserved until Set Camera.
+
+
+## PanoPilot 0.40 additions
+
+- explicit clockwise/counter-clockwise Virtual Camera roll controls;
+- persisted Camera Position roll in schema v7;
+- shortest-route roll interpolation through the Clip View Path;
+- precise roll keyboard controls and shared angular-step semantics.
+
+
+## PanoPilot 0.41 additions
+
+- Project schema v8 Source Identity;
+- supported-source import acceptance;
+- mismatch blocking/no silent substitution;
+- draggable Camera Position timeline markers;
+- normalized requirement IDs and traceability matrix.

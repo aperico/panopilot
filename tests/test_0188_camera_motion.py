@@ -142,7 +142,7 @@ def test_schema_v2_migrates_with_current_smooth_default(tmp_path):
         path
     )
 
-    assert project.schema_version == 6
+    assert project.schema_version == 8
     assert project.camera_motion_easing == "smooth"
     assert project.camera_motion_strength == pytest.approx(
         1.0

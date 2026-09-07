@@ -69,7 +69,7 @@ from .performance import (
 from .projection_prefetch import (
     ProjectionMapPrefetcher,
 )
-from .project import load_project
+from .project import assert_project_sources, load_project
 from .source import (
     audio_streams,
     decode_lens_pair,
@@ -961,7 +961,9 @@ def _auto_calibrate_clip_rolling_shutter(
     output_height,
     analysis_width,
     imu_offset_ms,
-    progress_callback,
+    clip_number=1,
+    clip_count=1,
+    progress_callback=None,
 ):
     """
     Fit signed sensor readout time against the actual source and Project view.
@@ -1049,6 +1051,10 @@ def _auto_calibrate_clip_rolling_shutter(
             f"{clip.id}, {len(pair_indices)} high-motion pair(s)"
         ),
         clip_id=clip.id,
+        clip_index=int(clip_number),
+        clip_count=int(clip_count),
+        candidate_index=0,
+        candidate_total=40,
     )
 
     required_indices = sorted(
@@ -1166,11 +1172,52 @@ def _auto_calibrate_clip_rolling_shutter(
             pair_indices,
         )
 
+    candidate_progress = {
+        "index": 0,
+        "total": 40,
+    }
+
+    def score_candidate(
+        signed_readout_ms,
+        reference_offset_ms,
+    ):
+        score = render_candidate(
+            signed_readout_ms,
+            reference_offset_ms,
+        )
+        candidate_progress[
+            "index"
+        ] += 1
+        _emit(
+            progress_callback,
+            "rolling-shutter-calibration-progress",
+            (
+                "Calibrating rolling shutter — "
+                f"Clip {int(clip_number)}/{int(clip_count)} · "
+                f"candidate {candidate_progress['index']}/"
+                f"{candidate_progress['total']}"
+            ),
+            clip_id=clip.id,
+            clip_index=int(clip_number),
+            clip_count=int(clip_count),
+            candidate_index=int(
+                candidate_progress[
+                    "index"
+                ]
+            ),
+            candidate_total=int(
+                candidate_progress[
+                    "total"
+                ]
+            ),
+        )
+        return score
+
     scores = {
         (
             0.0,
             0.0,
-        ): render_candidate(
+        ): score_candidate(
             0.0,
             0.0,
         )
@@ -1206,7 +1253,7 @@ def _auto_calibrate_clip_rolling_shutter(
             )
             scores[
                 key
-            ] = render_candidate(
+            ] = score_candidate(
                 key[
                     0
                 ],
@@ -1280,7 +1327,7 @@ def _auto_calibrate_clip_rolling_shutter(
                 if key not in scores:
                     scores[
                         key
-                    ] = render_candidate(
+                    ] = score_candidate(
                         key[
                             0
                         ],
@@ -1307,6 +1354,18 @@ def _auto_calibrate_clip_rolling_shutter(
             f"reference offset {calibration.reference_offset_ms:+.2f} ms"
         ),
         clip_id=clip.id,
+        clip_index=int(clip_number),
+        clip_count=int(clip_count),
+        candidate_index=int(
+            candidate_progress[
+                "total"
+            ]
+        ),
+        candidate_total=int(
+            candidate_progress[
+                "total"
+            ]
+        ),
         rolling_shutter=calibration.to_dict(),
     )
 
@@ -1342,6 +1401,9 @@ def _render_video_stream(
     rolling_shutter_direction="top-to-bottom",
     rolling_shutter_analysis_width=640,
     rolling_shutter_calibrations=None,
+    render_pass_index=1,
+    render_pass_count=1,
+    render_pass_label="Final render",
     visual_camera_offsets=None,
     progress_callback=None,
 ):
@@ -1952,6 +2014,12 @@ def _render_video_stream(
                                 imu_offset_ms=(
                                     imu_offset_ms
                                 ),
+                                clip_number=int(
+                                    group_number
+                                ),
+                                clip_count=int(
+                                    len(groups)
+                                ),
                                 progress_callback=(
                                     progress_callback
                                 ),
@@ -2106,6 +2174,9 @@ def _render_video_stream(
                                     f"frames ({percent:.1f}%)",
                                     frame=rendered_frames,total_frames=total_frames,
                                     percent=percent,clip_id=clip.id,source_time=source_time,
+                                    render_pass_index=int(render_pass_index),
+                                    render_pass_count=int(render_pass_count),
+                                    render_pass_label=str(render_pass_label),
                                 )
                     finally:
                         if decoder_process.stdout:
@@ -2200,6 +2271,9 @@ def _render_video_stream(
                                     f"frames ({percent:.1f}%)",
                                     frame=rendered_frames,total_frames=total_frames,
                                     percent=percent,clip_id=clip.id,source_time=source_time,
+                                    render_pass_index=int(render_pass_index),
+                                    render_pass_count=int(render_pass_count),
+                                    render_pass_label=str(render_pass_label),
                                 )
                     finally:
                         if decoder_process.stdout:
@@ -2854,6 +2928,7 @@ def export_project_video(
     project = load_project(
         project_path
     )
+    assert_project_sources(project)
 
     profile = output_profile_for_project(
         project,
@@ -3161,6 +3236,25 @@ def export_project_video(
                             rolling_shutter_analysis_width
                         ),
                         rolling_shutter_calibrations=None,
+                        render_pass_index=1,
+                        render_pass_count=(
+                            2
+                            if (
+                                visual_stabilization
+                                and visual_stabilization_mode
+                                == "spherical"
+                            )
+                            else 1
+                        ),
+                        render_pass_label=(
+                            "Initial stabilized render"
+                            if (
+                                visual_stabilization
+                                and visual_stabilization_mode
+                                == "spherical"
+                            )
+                            else "Final render"
+                        ),
                         progress_callback=(
                             progress_callback
                         ),
@@ -3215,6 +3309,11 @@ def export_project_video(
                         visual_stabilization_mode
                         == "spherical"
                     ):
+                        _emit(
+                            progress_callback,
+                            "visual-analysis",
+                            "Analyzing residual camera motion",
+                        )
                         spherical_plan = (
                             analyze_spherical_camera_stabilization(
                                 video_rendered,
@@ -3308,6 +3407,11 @@ def export_project_video(
                                     ),
                                     rolling_shutter_calibrations=(
                                         rolling_shutter_calibrations
+                                    ),
+                                    render_pass_index=2,
+                                    render_pass_count=2,
+                                    render_pass_label=(
+                                        "Final spherical re-render"
                                     ),
                                     visual_camera_offsets=(
                                         spherical_plan.pixel_corrections
@@ -3651,11 +3755,19 @@ def export_project_video(
         ),
     }
 
+    output_file_size_bytes = int(
+        output.stat().st_size
+    )
+
     _emit(
         progress_callback,
         "completed",
         f"Project export complete — {output.name}",
         output=str(output),
+        output_file_size_bytes=(
+            output_file_size_bytes
+        ),
+        percent=100.0,
     )
 
     return {
@@ -3664,6 +3776,9 @@ def export_project_video(
         ),
         "output": str(
             output
+        ),
+        "output_file_size_bytes": int(
+            output_file_size_bytes
         ),
         "clip_count": len(
             project.clips

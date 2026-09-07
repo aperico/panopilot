@@ -16,7 +16,7 @@ Yaw follows the shortest angular route across the panoramic seam.
 
 Between Camera Positions, PanoPilot applies quintic ease-in/ease-out
 ("smootherstep") to the normalized segment time before interpolating yaw,
-pitch, and horizontal FOV. This gives zero velocity and zero acceleration at
+pitch, roll, and horizontal FOV. This gives zero velocity and zero acceleration at
 Camera Positions, avoiding the harsh change of motion that occurs when a
 piecewise-linear camera path hits a reframing point.
 """
@@ -61,6 +61,9 @@ class ViewPathSample:
             "camera": {
                 "yaw_deg": float(self.camera.yaw_deg),
                 "pitch_deg": float(self.camera.pitch_deg),
+                "roll_deg": float(
+                    self.camera.roll_deg
+                ),
                 "fov_deg": float(self.camera.fov_deg),
             },
         }
@@ -85,6 +88,13 @@ def _camera_from_position(position):
         yaw_deg=float(position.yaw_deg),
         pitch_deg=float(position.pitch_deg),
         fov_deg=float(position.fov_deg),
+        roll_deg=float(
+            getattr(
+                position,
+                "roll_deg",
+                0.0,
+            )
+        ),
     )
 
 
@@ -222,6 +232,29 @@ def interpolate_camera(
         )
     )
 
+    roll = wrap_yaw_deg(
+        float(
+            getattr(
+                left,
+                "roll_deg",
+                0.0,
+            )
+        )
+        + alpha
+        * shortest_yaw_delta_deg(
+            getattr(
+                left,
+                "roll_deg",
+                0.0,
+            ),
+            getattr(
+                right,
+                "roll_deg",
+                0.0,
+            ),
+        )
+    )
+
     fov = (
         float(left.fov_deg)
         + alpha
@@ -235,6 +268,7 @@ def interpolate_camera(
         yaw_deg=yaw,
         pitch_deg=pitch,
         fov_deg=fov,
+        roll_deg=roll,
     )
 
 

@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.41.0
+
+- Project schema v8 expected Source Identity.
+- Independent source acceptance and mismatch blocking.
+- Camera Position timeline marker dragging with Undo/Redo.
+- Unique requirement IDs and executable traceability lint.
+- Adds docs/06_requirements_traceability.md.
+
+## 0.40.0
+
+- Adds explicit counter-clockwise and clockwise roll buttons to the Clip Editor.
+- Roll buttons share the existing Fine/Normal/Coarse angular-step selector.
+- Holding a roll button continuously rotates the Virtual Camera.
+- Adds `[` / `]` roll keyboard shortcuts.
+- Adds roll to ExploreState and Camera Position persistence.
+- Upgrades Project schema to v7; previous Projects migrate with zero roll.
+- Adds shortest-route roll interpolation to View Paths.
+- Project Preview and final Project export consume persisted roll automatically.
+- Adds roll to engineering `reframe` and `explore` CLI controls.
+- Updates Camera HUD/status text to show Roll.
+- Adds regression coverage for roll editing, migration, interpolation, and UI.
+
+## 0.39.0
+
+- Adds an on-screen four-direction arrow pad to the Clip Editor.
+- Adds deterministic 360 camera yaw/pitch nudging independent of mouse drag.
+- Adds selectable Fine 0.25°, Normal 1°, and Coarse 5° angular steps.
+- Adds press-and-hold auto-repeat for continuous arrow rotation.
+- Adds Shift+Left/Right/Up/Down keyboard camera controls.
+- Preserves bare Left/Right as timeline seek shortcuts.
+- Direction-arrow movement remains transient exploration until Set Camera is
+  explicitly selected.
+- Keeps Project schema v6 because the selected nudge step is an editor control,
+  not Project media semantics.
+- Updates engineering documentation through 0.39.
+
+## 0.38.0
+
+- Adds an explicit export confirmation summary before rendering starts.
+- Improves default output naming with saved resolution and quality.
+- Adds a dedicated determinate desktop export-progress dialog.
+- Displays elapsed time and estimated remaining time during export.
+- Adds candidate-level rolling-shutter calibration progress events.
+- Adds render-pass identity to frame progress for multi-pass export support.
+- Reports final output file size from the completed export transaction.
+- Adds a desktop completion screen with resolution, quality, duration, file
+  size, export time, path, and Open Folder action.
+- Adds a desktop export-failure dialog and returns to the Organizer on failure.
+- Keeps Project schema v6 because no new persisted Project setting is required.
+- Updates engineering documentation through 0.38.
+
 ## 0.37.0
 
 - Adds persisted final export size: 720p or 1080p.

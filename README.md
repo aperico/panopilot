@@ -1,6 +1,6 @@
 # PanoPilot
 
-Current internal version: `0.37.0`
+Current internal version: `0.41.0`
 
 # 0.18 — Multi-Clip sequential project editing
 
@@ -2049,3 +2049,128 @@ The performance report records the selected signed readout, scan direction,
 reference offset, calibration score improvement, and candidate scores for each
 Clip.
 \n\n# 0.37 — Final Export Size and Quality\n\nPanoPilot now exposes final delivery settings as Project-level output choices.\n\n**Size** is deliberately bounded to:\n\n- `720p` — 1280×720 for 16:9, 720×1280 for 9:16;\n- `1080p` — 1920×1080 for 16:9, 1080×1920 for 9:16.\n\nThere are no lower-than-720p or higher-than-1080p final-export options in this\nrelease. Preview/cache resolution remains an independent implementation detail.\n\n**Quality** presets are:\n\n- `Standard` — H.264 CRF 23, smaller file;\n- `High` — H.264 CRF 18, recommended and equivalent to the previous default;\n- `Very High` — H.264 CRF 15, higher fidelity/larger file.\n\nResolution and quality are persisted in Project schema v6 and are undoable in\nthe Project Organizer. Existing v1–v5 Projects migrate to `1080p / High`, so\nopening an older Project does not silently change its previous final-render\ngeometry or encoder quality.\n\nThe Project Organizer now contains an **Export** row with Size and Quality\nselectors. `Export Project…` automatically uses those saved settings.\n\nCLI overrides are available without changing the Project:\n\n```bash\npanopilot project-export project.json \\\n  -o output.mp4 \\\n  --resolution 720p \\\n  --quality high\n```\n\n`--crf` and `--preset` remain advanced engineering overrides. When omitted they\nare derived from the quality preset.\n
+
+# 0.38 — Export Experience
+
+0.38 turns final rendering into a first-class desktop workflow instead of a
+modal spinner followed by terminal output.
+
+Before export, the Project Organizer now shows one explicit confirmation with:
+
+```text
+file name + destination folder
+resolution / aspect / FPS
+quality preset / H.264 MP4
+Project duration
+Clip count
+stabilization amount
+```
+
+The suggested output filename includes the saved resolution and quality, for
+example:
+
+```text
+panopilot_project-1080p-high.mp4
+```
+
+The export dialog is determinate and displays:
+
+```text
+current operation
+percentage
+elapsed time
+estimated remaining time
+```
+
+The exporter now emits structured progress for source inspection,
+rolling-shutter calibration candidates, frame rendering, audio assembly, mux,
+verification, and completion. Frame events also identify the render pass so a
+future two-pass/spherical export does not reset the progress bar.
+
+After a successful export PanoPilot shows:
+
+```text
+file name
+resolution / FPS / quality
+video duration
+final file size
+export time
+full destination path
+[Open Folder] [Close]
+```
+
+Export errors are reported in the desktop UI and return the User to the Project
+Organizer rather than terminating the editing session.
+
+No Project schema change is required for 0.38; export size and quality remain
+schema-v6 Project settings.
+
+
+# 0.39 — Precise 360 View Direction Controls
+
+Mouse drag remains the fastest way to explore a 360 recording, but precise
+Virtual Camera framing no longer depends on the pointer alone.
+
+The Clip Editor now provides an explicit directional pad:
+
+```text
+             [ ↑ ]
+        [ ← ]     [ → ]
+             [ ↓ ]
+
+Step: [ Fine 0.25° | Normal 1° | Coarse 5° ]
+```
+
+Each click changes only the transient exploratory camera. Hold an arrow button
+for continuous rotation. The view becomes a persisted Camera Position only
+when **Set Camera** is selected, preserving PanoPilot's exploration-versus-edit
+invariant.
+
+Keyboard equivalents are:
+
+```text
+Shift + Left   look left
+Shift + Right  look right
+Shift + Up     look up
+Shift + Down   look down
+```
+
+Bare Left/Right remain timeline seek controls, so the established transport
+workflow is preserved.
+
+
+# 0.40 — Explicit Camera Roll Controls
+
+PanoPilot now exposes all three Virtual Camera orientation axes in the Clip
+Editor.
+
+```text
+                 ↑
+            ←         →
+                 ↓
+
+Roll        ↺       ↻
+          CCW       CW
+
+Step:  0.25° / 1° / 5°
+```
+
+The same angular step selector is shared by yaw, pitch, and roll.
+
+- `↺` rotates the conventional output view counter-clockwise.
+- `↻` rotates it clockwise.
+- holding either button continuously rolls the view;
+- `[` is the counter-clockwise keyboard shortcut;
+- `]` is the clockwise keyboard shortcut;
+- roll navigation remains transient until **Set Camera** is pressed.
+
+Camera Position roll is persisted in Project schema v7 and is interpolated
+between Camera Positions using the shortest angular route, just like yaw.
+
+Existing schema-v6 and older Projects migrate with `roll_deg = 0.0`, preserving
+their previous framing exactly.
+
+
+# 0.41 — Requirements Closure, Source Integrity, and Camera-Time Editing
+
+Projects now persist a sampled SHA-256 expected Source Identity. Mismatched media is blocked rather than silently substituted. Multi-file import validates each OSV independently. Camera Position markers are draggable on the source timeline and preserve yaw/pitch/roll/FOV while changing Source Time. `docs/06_requirements_traceability.md` maps every normative requirement to implementation, verification evidence, and status; duplicate requirement IDs are now a test failure.

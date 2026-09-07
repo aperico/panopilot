@@ -1,7 +1,7 @@
 # PanoPilot — System Requirements
 
 Status: Draft  
-Baseline: SYS-0.25
+Baseline: SYS-0.26
 Scope: Iteration 1  
 Parent: `01_system_definition.md`  
 Use Cases: `02_use_cases.md`
@@ -1066,9 +1066,13 @@ Maximum accepted exported audio/video stream-duration delta: 50 ms.
 
 ## SOURCE-IDENTITY-001
 
-Minimum media identity semantics used to detect mismatched referenced media.
+Minimum media identity semantics used to detect mismatched referenced media:
 
-**Status:** TBD
+- source byte size;
+- SHA-256 over deterministic beginning/middle/end source windows plus byte size;
+- path and modification time retained as diagnostics but excluded from authoritative identity comparison.
+
+**Status:** Resolved — sampled-sha256-v1
 
 ---
 
@@ -1321,7 +1325,7 @@ OSV Projects.
 
 # 24. Optimization Requirements — PanoPilot 0.21
 
-## SYS-PERF-004 — Composed Final Projection
+## SYS-PERF-027 — Composed Final Projection
 
 During final export with horizon correction enabled, PanoPilot shall compose
 the horizon-correction inverse mapping with the Virtual Camera inverse mapping
@@ -1744,7 +1748,7 @@ The visual correction shall be reduced when necessary so the configured center c
 
 # 36. Extreme Stabilization Requirements — PanoPilot 0.32
 
-## SYS-STAB-006 — Iterative Residual Measurement
+## SYS-STAB-023 — Iterative Residual Measurement
 
 When Extreme visual stabilization is selected, PanoPilot shall re-estimate
 residual visual motion after at least one preceding stabilization correction.
@@ -1753,7 +1757,7 @@ residual visual motion after at least one preceding stabilization correction.
 **Verification:** Test
 
 
-## SYS-STAB-007 — Forward/Backward Track Validation
+## SYS-STAB-024 — Forward/Backward Track Validation
 
 Extreme visual stabilization shall reject optical-flow tracks whose
 forward/backward round-trip error exceeds the configured acceptance threshold.
@@ -1762,7 +1766,7 @@ forward/backward round-trip error exceeds the configured acceptance threshold.
 **Verification:** Test
 
 
-## SYS-STAB-008 — Extreme Crop Reserve
+## SYS-STAB-025 — Extreme Crop Reserve
 
 Extreme visual stabilization shall accept a linear crop reserve from 0 through
 60 percent.
@@ -1771,7 +1775,7 @@ Extreme visual stabilization shall accept a linear crop reserve from 0 through
 **Verification:** Test
 
 
-## SYS-STAB-009 — Single Final Image Warp
+## SYS-STAB-026 — Single Final Image Warp
 
 Multiple Extreme analysis passes shall compose their corrections before final
 delivery-frame rendering so the full-resolution image is warped once.
@@ -1784,7 +1788,7 @@ delivery-frame rendering so the full-resolution image is warped once.
 
 # 37. Locked Stabilization Requirements — PanoPilot 0.33
 
-## SYS-STAB-010 — Locked Translation-Only Residual
+## SYS-STAB-027 — Locked Translation-Only Residual
 
 When Locked visual stabilization is selected, PanoPilot shall not apply visual
 rotation or scale correction after gyro stabilization.
@@ -1792,7 +1796,7 @@ rotation or scale correction after gyro stabilization.
 **Priority:** MUST  
 **Verification:** Test
 
-## SYS-STAB-011 — Temporally Constant Crop Constraint
+## SYS-STAB-028 — Temporally Constant Crop Constraint
 
 Within one Clip and Locked stabilization pass, crop feasibility shall be
 satisfied with one correction gain for the complete Clip rather than
@@ -1805,7 +1809,7 @@ independent per-frame correction clipping.
 
 # 37. Anchored Residual Stabilization Requirements — PanoPilot 0.34
 
-## SYS-STAB-010 — Spatially Variant Residual Motion
+## SYS-STAB-029 — Spatially Variant Residual Motion
 
 The recommended visual residual stabilizer shall represent residual image
 motion with multiple spatial control points rather than one full-frame affine
@@ -1815,7 +1819,7 @@ transform.
 **Verification:** Test
 
 
-## SYS-STAB-011 — Local Deformation Anchoring
+## SYS-STAB-030 — Local Deformation Anchoring
 
 The visual residual stabilizer shall periodically constrain local deformation
 back to the gyro-backed frame geometry with temporally smooth anchors.
@@ -1824,7 +1828,7 @@ back to the gyro-backed frame geometry with temporally smooth anchors.
 **Verification:** Test
 
 
-## SYS-STAB-012 — Crop Budget Semantics
+## SYS-STAB-031 — Crop Budget Semantics
 
 For anchored stabilization, the configured crop percentage shall represent the
 maximum permitted crop. PanoPilot shall use the minimum static crop required by
@@ -1834,7 +1838,7 @@ the accepted correction when it is less than that maximum.
 **Verification:** Test
 
 
-## SYS-STAB-013 — No Per-Frame Crop Gain
+## SYS-STAB-032 — No Per-Frame Crop Gain
 
 Anchored stabilization shall not vary stabilization gain independently from one
 frame to the next as a consequence of crop feasibility.
@@ -1940,7 +1944,7 @@ shall reduce visual roll authority while retaining gyro orientation authority.
 
 # 40. Final Export Option Requirements — PanoPilot 0.37
 
-## SYS-OUT-001 — Final Resolution Classes
+## SYS-OUT-007 — Final Resolution Classes
 
 The PanoPilot system shall provide final video resolution choices of 720p and
 1080p and shall not expose a lower or higher final resolution in this release.
@@ -1948,7 +1952,7 @@ The PanoPilot system shall provide final video resolution choices of 720p and
 **Priority:** MUST  
 **Verification:** Test
 
-## SYS-OUT-002 — Aspect-Aware Dimensions
+## SYS-OUT-008 — Aspect-Aware Dimensions
 
 When 720p or 1080p is selected, the PanoPilot system shall preserve the saved
 16:9 or 9:16 aspect using 1280×720 / 1920×1080 or their portrait transposes.
@@ -1956,7 +1960,7 @@ When 720p or 1080p is selected, the PanoPilot system shall preserve the saved
 **Priority:** MUST  
 **Verification:** Test
 
-## SYS-OUT-003 — Export Quality Presets
+## SYS-OUT-009 — Export Quality Presets
 
 The PanoPilot system shall provide Standard, High, and Very High H.264 quality
 presets and shall persist the selected preset in the Project.
@@ -1964,10 +1968,226 @@ presets and shall persist the selected preset in the Project.
 **Priority:** MUST  
 **Verification:** Test
 
-## SYS-OUT-004 — Legacy Output Equivalence
+## SYS-OUT-010 — Legacy Output Equivalence
 
 When a schema-v1 through schema-v5 Project is opened, the PanoPilot system
 shall migrate its final output settings to 1080p and High quality.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+---
+
+# 41. Export Experience Requirements — PanoPilot 0.38
+
+## SYS-EXP-018 — Export Confirmation
+
+Before a desktop Project export starts, PanoPilot shall present the selected
+output destination, resolution, aspect, frame rate, quality, Project duration,
+Clip count, and stabilization amount for User confirmation.
+
+**Priority:** MUST  
+**Verification:** Demonstration
+
+
+## SYS-EXP-019 — Determinate Export Progress
+
+During desktop Project export, PanoPilot shall display a monotonic progress
+percentage and the current export operation.
+
+**Priority:** MUST  
+**Verification:** Test, Demonstration
+
+
+## SYS-EXP-020 — Export Time Status
+
+During desktop Project export, PanoPilot shall display elapsed time and shall
+display an estimated remaining time after sufficient progress evidence exists.
+
+**Priority:** SHOULD  
+**Verification:** Test, Demonstration
+
+
+## SYS-EXP-021 — Export Completion Facts
+
+After successful desktop export, PanoPilot shall display the output path,
+resolution, frame rate, quality, encoded duration, final file size, and export
+processing time.
+
+**Priority:** MUST  
+**Verification:** Test, Demonstration
+
+
+## SYS-EXP-022 — Open Export Folder
+
+After successful desktop export, PanoPilot shall provide an action that opens
+the output file's containing folder through the desktop environment.
+
+**Priority:** SHOULD  
+**Verification:** Demonstration
+
+
+## SYS-EXP-023 — Recoverable Export Failure
+
+When a desktop export fails, PanoPilot shall present the failure without
+terminating the Project Organizer workflow.
+
+**Priority:** MUST  
+**Verification:** Demonstration
+
+
+---
+
+# 42. Precise View Direction Requirements — PanoPilot 0.39
+
+## SYS-UI-021 — Directional View Controls
+
+The PanoPilot Clip Editor shall provide visible Left, Right, Up, and Down
+controls that adjust the transient Virtual Camera yaw or pitch.
+
+**Priority:** MUST  
+**Verification:** Demonstration, Test
+
+
+## SYS-UI-022 — Angular Nudge Resolution
+
+The PanoPilot Clip Editor shall provide selectable 0.25 degree, 1 degree, and 5
+degree directional adjustment increments.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-UI-023 — Direction Button Auto-Repeat
+
+While a View Direction control is held, PanoPilot shall repeatedly apply the
+selected angular adjustment until the control is released.
+
+**Priority:** SHOULD  
+**Verification:** Demonstration
+
+
+## SYS-UI-024 — Navigation/Edit Separation
+
+Using View Direction controls shall not persist a Camera Position until the
+User explicitly invokes Set Camera.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-UI-025 — Keyboard Direction Navigation
+
+While Shift is held, the keyboard Arrow keys shall perform the same Virtual
+Camera orientation adjustment as the visible direction controls.
+
+**Priority:** SHOULD  
+**Verification:** Demonstration, Inspection
+
+---
+
+# 41. Camera Roll Requirements — PanoPilot 0.40
+
+## SYS-CAM-014 — Explicit Roll Controls
+
+The Clip Editor shall provide separate clockwise and counter-clockwise controls
+that change transient Virtual Camera roll by the selected angular step.
+
+**Priority:** MUST  
+**Verification:** Demonstration, Test
+
+
+## SYS-CAM-015 — Roll Persistence
+
+When the User selects Set Camera, PanoPilot shall persist the current Virtual
+Camera roll as part of the Camera Position.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-CAM-016 — Roll Path Interpolation
+
+Between two active Camera Positions, PanoPilot shall interpolate roll using the
+shortest angular route and the same normalized Camera Motion timing applied to
+yaw, pitch, and FOV.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-CAM-017 — Legacy Roll Migration
+
+When loading a Project created before schema v7, PanoPilot shall initialize
+missing Camera Position roll to 0 degrees.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+---
+
+# 42. Requirements Closure and Source Integrity — PanoPilot 0.41
+
+## SYS-MEDIA-008 — Import Processing Validation
+
+For each Source Recording selected for import, PanoPilot shall independently
+validate the two panoramic lens streams, DJI factory calibration, DJI
+orientation metadata, positive source duration, and installed lens decoding
+capability before creating the Clip.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-02
+
+
+## SYS-SAVE-013 — Persistent Expected Source Fingerprint
+
+For each newly accepted Source Recording, PanoPilot shall persist a sampled
+SHA-256 Source Identity containing source byte size and deterministic
+beginning/middle/end content samples.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-02, UC-11, UC-12
+
+
+## SYS-SAVE-014 — Identity Mismatch Processing Block
+
+When a referenced source exists but does not match its expected Source
+Identity, PanoPilot shall block Clip Preview, Project Preview, project-aware
+rendering, and Final Export from using that file until the mismatch is resolved.
+
+**Priority:** MUST  
+**Verification:** Test  
+**Trace:** UC-03, UC-06, UC-12, UC-13
+
+
+## SYS-POS-009 — Timeline Marker Drag
+
+When the User drags an existing Camera Position marker on the Clip source
+timeline, PanoPilot shall move that Camera Position to the released Source Time
+without changing its yaw, pitch, roll, or FOV.
+
+**Priority:** MUST  
+**Verification:** Demonstration, Test  
+**Trace:** UC-07
+
+
+## SYS-REQ-001 — Unique Requirement Identity
+
+Each normative System Requirement heading shall have one unique requirement
+identifier within the requirements baseline.
+
+**Priority:** MUST  
+**Verification:** Test
+
+
+## SYS-REQ-002 — Requirement Traceability Coverage
+
+Each normative System Requirement shall appear exactly once in the requirements
+traceability matrix with an implementation status and verification mapping.
 
 **Priority:** MUST  
 **Verification:** Test

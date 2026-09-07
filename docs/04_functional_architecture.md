@@ -1,7 +1,7 @@
 # PanoPilot — Functional Architecture
 
 Status: Draft  
-Baseline: FA-0.19
+Baseline: FA-0.21
 Scope: Iteration 1  
 Parent: `01_system_definition.md`  
 Use Cases: `02_use_cases.md`  
@@ -2034,3 +2034,81 @@ Final Project Renderer
 
 Advanced CLI CRF/preset values may override the selected quality preset for one
 export without modifying the saved Project.
+
+
+---
+
+# 56. Export UX Function Chain — PanoPilot 0.38
+
+```text
+Project Organizer
+      ↓ Save if dirty
+Select destination
+      ↓
+Export Summary / confirmation
+      ↓
+Exporter worker thread
+      ↓ structured progress events
+ExportProgressModel
+      ↓ monotonic overall percentage + ETA
+Qt Export Progress dialog
+      ↓
+transactional render / mux / verify
+      ↓
+final file facts
+      ↓
+Completion dialog → Open Folder
+```
+
+Progress mapping is intentionally separate from the media renderer. The
+renderer reports factual stage/frame/candidate events; the desktop layer maps
+those events onto User-facing overall progress.
+
+
+---
+
+# 58. Precise View Navigation Function Chain — PanoPilot 0.39
+
+```text
+Mouse drag ───────────────┐
+                         │
+Direction pad ────────────┼─→ transient ExploreState yaw/pitch
+                         │          ↓
+Shift+Arrow keyboard ────┘     Clip preview refresh
+                                    ↓
+                              explicit Set Camera
+                                    ↓
+                         persisted Camera Position
+```
+
+The direction pad and keyboard shortcuts share the same angular nudge function
+so visible and keyboard navigation cannot diverge semantically.
+
+---
+
+# 56. Camera Roll Editing Function Chain — PanoPilot 0.40
+
+```text
+Roll button / [ or ]
+        ↓
+transient ExploreState.roll_deg
+        ↓
+VirtualCamera.roll_deg
+        ↓
+rectilinear preview projection
+        ↓
+Set Camera
+        ↓
+CameraPosition.roll_deg
+        ↓
+View Path shortest-route interpolation
+        ↓
+Project Preview / Final Direct Renderer
+```
+
+
+---
+
+# 57. Source Acceptance and Identity Function Chain — PanoPilot 0.41
+
+`selected OSV → stream/duration → DJI calibration/orientation → decode smoke → sampled identity → Clip`. On reopen/preview/export, identity is recomputed and mismatch/missing media is blocked.

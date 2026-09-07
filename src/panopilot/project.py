@@ -1,7 +1,7 @@
 """
 PanoPilot project model.
 
-Project schema v6 records final export resolution/quality while v5 records the high-rate adaptive stabilization algorithm; v4 added persisted gyro stabilization amount while v3 added Camera Motion easing settings while
+Project schema v8 persists expected Source Identity while v7 persists Camera Position roll and v6 records final export resolution/quality while v5 records the high-rate adaptive stabilization algorithm; v4 added persisted gyro stabilization amount while v3 added Camera Motion easing settings while
 preserving the schema-v2 continuous trim range per Clip and
 preserving the fundamental reframing invariant:
 
@@ -11,7 +11,7 @@ preserving the fundamental reframing invariant:
 A Camera Position outside the active trim remains persisted and becomes
 dormant. Expanding the trim later can make it active again.
 
-Schema v1/v2/v3/v4/v5 projects are upgraded in memory automatically and are written as v6
+Schema v1/v2/v3/v4/v5/v6/v7 projects are upgraded in memory automatically and are written as v8
 on their next explicit Save.
 """
 from __future__ import annotations
@@ -25,6 +25,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from .media_identity import source_identity, source_reference_status
 from .output_profile import (
     DEFAULT_OUTPUT_QUALITY,
     DEFAULT_OUTPUT_RESOLUTION,
@@ -33,8 +34,8 @@ from .output_profile import (
 )
 
 
-SCHEMA_VERSION = 6
-SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6)
+SCHEMA_VERSION = 8
+SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8)
 TIME_MATCH_TOLERANCE_S = 1e-6
 
 CAMERA_MOTION_EASINGS = (
@@ -59,6 +60,7 @@ class CameraPosition:
     yaw_deg: float
     pitch_deg: float
     fov_deg: float
+    roll_deg: float = 0.0
 
     def to_dict(self):
         return asdict(self)
@@ -70,6 +72,12 @@ class CameraPosition:
             yaw_deg=float(data["yaw_deg"]),
             pitch_deg=float(data["pitch_deg"]),
             fov_deg=float(data["fov_deg"]),
+            roll_deg=float(
+                data.get(
+                    "roll_deg",
+                    0.0,
+                )
+            ),
         )
 
 
@@ -77,6 +85,7 @@ class CameraPosition:
 class Clip:
     id: str
     source: str
+    source_identity: Optional[dict] = None
     camera_positions: list[CameraPosition] = field(default_factory=list)
     trim_in_source_time: float = 0.0
     trim_out_source_time: Optional[float] = None
@@ -163,7 +172,7 @@ class Clip:
             if not self.is_source_time_active(p.source_time)
         ]
 
-    def upsert_camera_position(self, source_time, yaw_deg, pitch_deg, fov_deg):
+    def upsert_camera_position(self, source_time, yaw_deg, pitch_deg, fov_deg, roll_deg=0.0):
         existing = self.position_at(source_time)
         if existing is None:
             position = CameraPosition(
@@ -171,6 +180,9 @@ class Clip:
                 yaw_deg=float(yaw_deg),
                 pitch_deg=float(pitch_deg),
                 fov_deg=float(fov_deg),
+                roll_deg=float(
+                    roll_deg
+                ),
             )
             self.camera_positions.append(position)
             self.sort_positions()
@@ -179,15 +191,67 @@ class Clip:
             existing.yaw_deg = float(yaw_deg)
             existing.pitch_deg = float(pitch_deg)
             existing.fov_deg = float(fov_deg)
+            existing.roll_deg = float(
+                roll_deg
+            )
             position = existing
             created = False
         return position, created
+
+    def move_camera_position(
+        self,
+        source_time,
+        new_source_time,
+        *,
+        tolerance_s=TIME_MATCH_TOLERANCE_S,
+    ):
+        """Move one existing Camera Position without changing its camera state."""
+        source_time = float(source_time)
+        new_source_time = float(new_source_time)
+        tolerance_s = max(TIME_MATCH_TOLERANCE_S, float(tolerance_s))
+        if new_source_time < 0.0:
+            raise ValueError("Camera Position Source Time must be >= 0")
+        if not self.camera_positions:
+            return None
+
+        candidates = sorted(
+            (
+                (abs(float(position.source_time) - source_time), index, position)
+                for index, position in enumerate(self.camera_positions)
+            ),
+            key=lambda item: item[0],
+        )
+        distance, _index, position = candidates[0]
+        if distance > tolerance_s:
+            return None
+
+        for other in self.camera_positions:
+            if other is position:
+                continue
+            if abs(float(other.source_time) - new_source_time) <= TIME_MATCH_TOLERANCE_S:
+                raise ValueError(
+                    "A Camera Position already exists at the requested Source Time"
+                )
+
+        previous = float(position.source_time)
+        position.source_time = new_source_time
+        self.sort_positions()
+        return {
+            "previous_source_time": previous,
+            "source_time": new_source_time,
+            "position": position,
+        }
 
     def to_dict(self):
         self.sort_positions()
         return {
             "id": self.id,
             "source": self.source,
+            "source_identity": (
+                dict(self.source_identity)
+                if self.source_identity is not None
+                else None
+            ),
             "trim": {
                 "in_source_time": float(self.trim_in_source_time),
                 "out_source_time": (
@@ -205,6 +269,11 @@ class Clip:
         return cls(
             id=str(data["id"]),
             source=str(data["source"]),
+            source_identity=(
+                dict(data["source_identity"])
+                if data.get("source_identity") is not None
+                else None
+            ),
             trim_in_source_time=float(trim.get("in_source_time", 0.0)),
             trim_out_source_time=(
                 float(trim["out_source_time"])
@@ -391,6 +460,7 @@ class Project:
         self,
         source,
         *,
+        source_identity_value=None,
         allow_duplicate_source=False,
     ):
         source = str(source)
@@ -404,9 +474,20 @@ class Project:
                 "Repeated source instances are not part of Iteration 1."
             )
 
+        if source_identity_value is None:
+            try:
+                source_identity_value = source_identity(source)
+            except (FileNotFoundError, OSError):
+                source_identity_value = None
+
         clip = Clip(
             id=self.next_clip_id(),
             source=source,
+            source_identity=(
+                dict(source_identity_value)
+                if source_identity_value is not None
+                else None
+            ),
         )
         self.clips.append(clip)
         return clip
@@ -525,6 +606,59 @@ class Project:
 
 
 
+
+def ensure_project_source_identities(project: Project):
+    """Establish missing legacy identities without overwriting expected identities."""
+    captured = []
+    for clip in project.clips:
+        if clip.source_identity is not None:
+            continue
+        try:
+            identity = source_identity(clip.source)
+        except (FileNotFoundError, OSError):
+            continue
+        clip.source_identity = identity
+        captured.append(clip.id)
+    return captured
+
+
+def project_source_statuses(project: Project):
+    return [
+        {
+            "clip_id": clip.id,
+            **source_reference_status(clip.source, clip.source_identity),
+        }
+        for clip in project.clips
+    ]
+
+
+def assert_project_sources(project: Project, *, clip_ids=None):
+    selected = set(str(value) for value in clip_ids) if clip_ids is not None else None
+    failures = []
+    statuses = []
+    for clip in project.clips:
+        if selected is not None and clip.id not in selected:
+            continue
+        status = {
+            "clip_id": clip.id,
+            **source_reference_status(clip.source, clip.source_identity),
+        }
+        statuses.append(status)
+        if status["status"] != "ok":
+            failures.append(status)
+    if failures:
+        summary = "; ".join(
+            f"{item['clip_id']}: {item['status']} — {item['message']}"
+            for item in failures
+        )
+        raise RuntimeError(
+            "Project Source Recording validation failed. "
+            "PanoPilot will not silently substitute missing or mismatched media. "
+            + summary
+        )
+    return statuses
+
+
 def _normalized_source_path(value):
     """Best-effort filesystem identity used only for command resolution."""
     try:
@@ -599,6 +733,7 @@ def commit_camera_position_to_clip(
     yaw_deg,
     pitch_deg,
     fov_deg,
+    roll_deg=0.0,
     output_aspect=None,
 ):
     """Commit a Camera Position to one exact Clip instance."""
@@ -617,6 +752,7 @@ def commit_camera_position_to_clip(
             yaw_deg=yaw_deg,
             pitch_deg=pitch_deg,
             fov_deg=fov_deg,
+            roll_deg=roll_deg,
         )
     )
 
@@ -1024,7 +1160,19 @@ def load_project(path, *, default_aspect="16:9"):
     path = Path(path)
     if not path.exists():
         return Project(output_aspect=default_aspect)
-    return Project.from_dict(json.loads(path.read_text(encoding="utf-8")))
+    data = json.loads(
+        path.read_text(encoding="utf-8")
+    )
+    original_version = int(
+        data.get("schema_version", 1)
+    )
+    project = Project.from_dict(data)
+    # Only schemas that predate Source Identity may establish a migration
+    # baseline automatically. A schema-v8 file missing identity remains
+    # explicitly unverified and is blocked rather than silently rebound.
+    if original_version < 8:
+        ensure_project_source_identities(project)
+    return project
 
 
 def save_project(
@@ -1065,6 +1213,7 @@ def commit_camera_position(
     yaw_deg,
     pitch_deg,
     fov_deg,
+    roll_deg=0.0,
     output_aspect=None,
 ):
     clip = project.clip_for_source(
@@ -1079,5 +1228,6 @@ def commit_camera_position(
         yaw_deg=yaw_deg,
         pitch_deg=pitch_deg,
         fov_deg=fov_deg,
+        roll_deg=roll_deg,
         output_aspect=output_aspect,
     )

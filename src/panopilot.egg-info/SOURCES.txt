@@ -8,10 +8,12 @@ src/panopilot/cli.py
 src/panopilot/direct_render.py
 src/panopilot/dji.py
 src/panopilot/explore.py
+src/panopilot/export_ui.py
 src/panopilot/extreme_stabilization.py
 src/panopilot/factory.py
 src/panopilot/loading.py
 src/panopilot/locked_stabilization.py
+src/panopilot/media_identity.py
 src/panopilot/mp4parse.py
 src/panopilot/output_profile.py
 src/panopilot/path_render.py
@@ -28,6 +30,7 @@ src/panopilot/reframe.py
 src/panopilot/rolling_shutter.py
 src/panopilot/session.py
 src/panopilot/source.py
+src/panopilot/source_validation.py
 src/panopilot/spherical_stabilization.py
 src/panopilot/stabilization.py
 src/panopilot/sweep.py
@@ -128,6 +131,14 @@ tests/test_036_rolling_shutter_direct.py
 tests/test_036_rolling_shutter_math.py
 tests/test_037_output_cli.py
 tests/test_037_output_options.py
+tests/test_038_export_progress.py
+tests/test_038_export_ux_architecture.py
+tests/test_039_view_direction_controls.py
+tests/test_040_roll_controls.py
+tests/test_041_camera_position_move.py
+tests/test_041_requirements_lint.py
+tests/test_041_source_integrity.py
+tests/test_041_timeline_marker_drag.py
 tests/test_attitude.py
 tests/test_cache.py
 tests/test_dji.py

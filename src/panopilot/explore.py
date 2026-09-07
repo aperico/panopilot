@@ -11,6 +11,10 @@ Editing invariant:
     Enter / Return                     = explicit edit (Use this view)
 
 Space is now the conventional Play/Pause shortcut.
+
+0.40 extends the precise View Direction controls with explicit clockwise and
+counter-clockwise roll rotation so all three camera orientation axes can be
+adjusted without relying on mouse gestures.
 """
 from __future__ import annotations
 
@@ -29,7 +33,7 @@ from .cache import (
 )
 from .pipeline import render_osv_panorama_frame
 from .loading import run_with_loading_screen
-from .project import load_project
+from .project import assert_project_sources, load_project
 from .session import ProjectSession
 from .virtual_camera import VirtualCamera, reframe_equirectangular
 from .view_path import evaluate_clip_view_path
@@ -72,10 +76,17 @@ def compact_trim_labels(trim_in, trim_out):
     }
 
 
-def compact_camera_text(yaw_deg, pitch_deg, fov_deg, aspect):
+def compact_camera_text(
+    yaw_deg,
+    pitch_deg,
+    fov_deg,
+    aspect,
+    roll_deg=0.0,
+):
     return (
         f"Yaw {float(yaw_deg):+.1f}°   "
         f"Pitch {float(pitch_deg):+.1f}°   "
+        f"Roll {float(roll_deg):+.1f}°   "
         f"FOV {float(fov_deg):.1f}°   "
         f"{aspect}"
     )
@@ -85,11 +96,13 @@ def compact_camera_text(yaw_deg, pitch_deg, fov_deg, aspect):
 class ExploreState:
     yaw_deg: float = 0.0
     pitch_deg: float = 0.0
+    roll_deg: float = 0.0
     fov_deg: float = 90.0
     aspect: str = "16:9"
 
     initial_yaw_deg: float = 0.0
     initial_pitch_deg: float = 0.0
+    initial_roll_deg: float = 0.0
     initial_fov_deg: float = 90.0
     initial_aspect: str = "16:9"
 
@@ -101,6 +114,9 @@ class ExploreState:
         self._validate_aspect(self.aspect)
         self._validate_aspect(self.initial_aspect)
         self.yaw_deg = self._wrap_yaw(self.yaw_deg)
+        self.roll_deg = self._wrap_yaw(
+            self.roll_deg
+        )
         self.pitch_deg = self._clamp_pitch(self.pitch_deg)
         self.fov_deg = self._clamp_fov(self.fov_deg)
 
@@ -124,6 +140,7 @@ class ExploreState:
             yaw_deg=self.yaw_deg,
             pitch_deg=self.pitch_deg,
             fov_deg=self.fov_deg,
+            roll_deg=self.roll_deg,
         )
 
     def snapshot(self):
@@ -132,11 +149,19 @@ class ExploreState:
             float(self.pitch_deg),
             float(self.fov_deg),
             str(self.aspect),
+            float(self.roll_deg),
         )
 
     def set_camera(self, camera, *, aspect=None, make_initial=False):
         self.yaw_deg = self._wrap_yaw(camera.yaw_deg)
         self.pitch_deg = self._clamp_pitch(camera.pitch_deg)
+        self.roll_deg = self._wrap_yaw(
+            getattr(
+                camera,
+                "roll_deg",
+                0.0,
+            )
+        )
         self.fov_deg = self._clamp_fov(camera.fov_deg)
 
         if aspect is not None:
@@ -146,12 +171,16 @@ class ExploreState:
         if make_initial:
             self.initial_yaw_deg = self.yaw_deg
             self.initial_pitch_deg = self.pitch_deg
+            self.initial_roll_deg = self.roll_deg
             self.initial_fov_deg = self.fov_deg
             self.initial_aspect = self.aspect
 
     def reset(self):
         self.yaw_deg = self._wrap_yaw(self.initial_yaw_deg)
         self.pitch_deg = self._clamp_pitch(self.initial_pitch_deg)
+        self.roll_deg = self._wrap_yaw(
+            self.initial_roll_deg
+        )
         self.fov_deg = self._clamp_fov(self.initial_fov_deg)
         self.aspect = self.initial_aspect
 
@@ -168,6 +197,40 @@ class ExploreState:
         self.pitch_deg = self._clamp_pitch(
             self.pitch_deg + float(dy_pixels) * deg_per_pixel
         )
+
+    def nudge_view(
+        self,
+        *,
+        yaw_delta_deg=0.0,
+        pitch_delta_deg=0.0,
+        roll_delta_deg=0.0,
+    ):
+        """Precisely nudge the transient Virtual Camera orientation.
+
+        Positive yaw looks right. Positive pitch looks up. Positive roll rotates the view clockwise. This is an
+        exploration/navigation operation only; it does not create or modify a
+        persisted Camera Position until the User explicitly selects Set Camera.
+        """
+        self.yaw_deg = self._wrap_yaw(
+            self.yaw_deg
+            + float(
+                yaw_delta_deg
+            )
+        )
+        self.pitch_deg = self._clamp_pitch(
+            self.pitch_deg
+            + float(
+                pitch_delta_deg
+            )
+        )
+        self.roll_deg = self._wrap_yaw(
+            self.roll_deg
+            + float(
+                roll_delta_deg
+            )
+        )
+
+        return self.camera()
 
     def apply_wheel_steps(self, steps):
         self.fov_deg = self._clamp_fov(
@@ -189,6 +252,7 @@ class ExploreWindow:
         undo_callback=None,
         redo_callback=None,
         delete_callback=None,
+        move_position_callback=None,
         aspect_callback=None,
         discard_callback=None,
         trim_in_callback=None,
@@ -225,6 +289,7 @@ class ExploreWindow:
         self.undo_callback = undo_callback
         self.redo_callback = redo_callback
         self.delete_callback = delete_callback
+        self.move_position_callback = move_position_callback
         self.aspect_callback = aspect_callback
         self.discard_callback = discard_callback
         self.trim_in_callback = trim_in_callback
@@ -348,12 +413,16 @@ class ExploreWindow:
             float(self.state.initial_pitch_deg),
             float(self.state.initial_fov_deg),
             str(self.state.initial_aspect),
+            float(
+                self.state.initial_roll_deg
+            ),
         )
 
         numeric_delta = max(
             abs(current[0] - initial[0]),
             abs(current[1] - initial[1]),
             abs(current[2] - initial[2]),
+            abs(current[4] - initial[4]),
         )
 
         return (
@@ -398,6 +467,7 @@ class ExploreWindow:
             abs(current[0] - saved[0]),
             abs(current[1] - saved[1]),
             abs(current[2] - saved[2]),
+            abs(current[4] - saved[4]),
         )
 
         return (
@@ -557,6 +627,30 @@ class ExploreWindow:
                 "No Camera Position at current frame"
             )
 
+        return result
+
+    def move_camera_position(self, source_time, new_source_time):
+        if self.move_position_callback is None:
+            raise RuntimeError("No Camera Position move callback was configured")
+        result = self.move_position_callback(
+            source_time=float(source_time),
+            new_source_time=float(new_source_time),
+        )
+        self._apply_project_state(result, restore_camera=True)
+        self.last_commit = None
+        operation = result.get("result") or {}
+        if operation.get("moved"):
+            self.last_edit_message = (
+                "Camera Position moved: "
+                f"{float(operation['previous_source_time']):.3f}s → "
+                f"{float(operation['source_time']):.3f}s"
+            )
+            if result.get("changed") and self.save_callback is not None:
+                save_result = self.save_callback()
+                self._apply_project_state(save_result)
+                self.saved_this_session = bool(save_result.get("saved"))
+        else:
+            self.last_edit_message = "Camera Position was not moved"
         return result
 
     def set_output_aspect(self, aspect):
@@ -735,6 +829,7 @@ class ExploreWindow:
             yaw_deg=self.state.yaw_deg,
             pitch_deg=self.state.pitch_deg,
             fov_deg=self.state.fov_deg,
+            roll_deg=self.state.roll_deg,
             aspect=self.state.aspect,
         )
 
@@ -926,6 +1021,7 @@ class ExploreWindow:
                 self.state.pitch_deg,
                 self.state.fov_deg,
                 self.state.aspect,
+                roll_deg=self.state.roll_deg,
             ),
         ]
 
@@ -986,6 +1082,7 @@ class ExploreWindow:
                 QApplication,
                 QComboBox,
                 QFrame,
+                QGridLayout,
                 QHBoxLayout,
                 QLabel,
                 QMessageBox,
@@ -1021,6 +1118,79 @@ class ExploreWindow:
                 # Reserve room for explicit IN / OUT flags above the normal
                 # slider groove and handle.
                 self.setMinimumHeight(46)
+                self._camera_drag_from = None
+                self._camera_drag_to = None
+                self.setToolTip(
+                    "Seek on the source timeline. Drag a red or gray Camera "
+                    "Position marker horizontally to move its Source Time."
+                )
+
+            def _time_for_x(self, x):
+                if outer.source_duration is None or outer.source_duration <= 0.0:
+                    return 0.0
+                left = 9.0
+                right = max(left + 1.0, float(self.width()) - 9.0)
+                fraction = max(0.0, min(1.0, (float(x) - left) / (right - left)))
+                return fraction * float(outer.source_duration)
+
+            def _x_for_time(self, value):
+                left = 9.0
+                right = max(left + 1.0, float(self.width()) - 9.0)
+                if outer.source_duration is None or outer.source_duration <= 0.0:
+                    return int(round(left))
+                fraction = max(0.0, min(1.0, float(value) / float(outer.source_duration)))
+                return int(round(left + fraction * (right - left)))
+
+            def _marker_near_x(self, x, tolerance_px=8.0):
+                markers = list(outer.marker_times) + list(outer.dormant_marker_times)
+                if not markers:
+                    return None
+                nearest = min(markers, key=lambda value: abs(self._x_for_time(value) - float(x)))
+                if abs(self._x_for_time(nearest) - float(x)) <= float(tolerance_px):
+                    return float(nearest)
+                return None
+
+            def mousePressEvent(self, event):
+                if event.button() == Qt.MouseButton.LeftButton:
+                    marker = self._marker_near_x(event.position().x())
+                    if marker is not None and outer.move_position_callback is not None:
+                        widget = self.window()
+                        if hasattr(widget, "_pause_playback"):
+                            widget._pause_playback()
+                        self._camera_drag_from = marker
+                        self._camera_drag_to = marker
+                        self.setValue(int(round(marker * 1000.0)))
+                        event.accept()
+                        return
+                super().mousePressEvent(event)
+
+            def mouseMoveEvent(self, event):
+                if self._camera_drag_from is not None:
+                    target = self._time_for_x(event.position().x())
+                    self._camera_drag_to = target
+                    self.setValue(int(round(target * 1000.0)))
+                    self.update()
+                    event.accept()
+                    return
+                super().mouseMoveEvent(event)
+
+            def mouseReleaseEvent(self, event):
+                if self._camera_drag_from is not None and event.button() == Qt.MouseButton.LeftButton:
+                    original = float(self._camera_drag_from)
+                    target = float(self._camera_drag_to if self._camera_drag_to is not None else original)
+                    self._camera_drag_from = None
+                    self._camera_drag_to = None
+                    try:
+                        outer.move_camera_position(original, target)
+                        outer.seek(target)
+                    except Exception as exc:
+                        outer.last_edit_message = f"Camera Position move failed: {exc}"
+                    widget = self.window()
+                    if hasattr(widget, "_refresh"):
+                        widget._refresh()
+                    event.accept()
+                    return
+                super().mouseReleaseEvent(event)
 
             def paintEvent(self, event):
                 super().paintEvent(event)
@@ -1136,6 +1306,18 @@ class ExploreWindow:
                         x,
                         band_top,
                         x,
+                        self.height() - 2,
+                    )
+
+                if self._camera_drag_to is not None:
+                    drag_pen = QPen(QColor(245, 165, 45))
+                    drag_pen.setWidth(4)
+                    painter.setPen(drag_pen)
+                    drag_x = x_for_time(self._camera_drag_to)
+                    painter.drawLine(
+                        drag_x,
+                        band_top,
+                        drag_x,
                         self.height() - 2,
                     )
 
@@ -1436,6 +1618,33 @@ class ExploreWindow:
                     )
 
                 # ---------------------------------------------------------
+                # Precise 360 View Direction controls. Mouse dragging remains
+                # the fast free-look gesture; arrows provide deterministic
+                # angular nudges for fine framing. These are transient
+                # navigation actions until Set Camera is pressed.
+                # ---------------------------------------------------------
+                self.view_step_combo = QComboBox()
+                self.view_step_combo.setFocusPolicy(
+                    Qt.FocusPolicy.NoFocus
+                )
+                self.view_step_combo.setToolTip(
+                    "Angular step used by the View Direction arrows and "
+                    "Shift+Arrow keyboard controls."
+                )
+                for step_label, step_value in (
+                    ("Fine  0.25°", 0.25),
+                    ("Normal  1°", 1.0),
+                    ("Coarse  5°", 5.0),
+                ):
+                    self.view_step_combo.addItem(
+                        step_label,
+                        float(step_value),
+                    )
+                self.view_step_combo.setCurrentIndex(
+                    1
+                )
+
+                # ---------------------------------------------------------
                 # Tool buttons: icons/tooltips avoid the long label row from
                 # 0.18.0 while keeping actions discoverable.
                 # ---------------------------------------------------------
@@ -1470,6 +1679,90 @@ class ExploreWindow:
                     return button
 
                 style = self.style()
+
+                def direction_button(
+                    standard_pixmap,
+                    tooltip,
+                ):
+                    button = tool_button(
+                        style.standardIcon(
+                            standard_pixmap
+                        ),
+                        tooltip,
+                    )
+                    button.setFixedSize(
+                        34,
+                        30,
+                    )
+                    button.setAutoRepeat(
+                        True
+                    )
+                    button.setAutoRepeatDelay(
+                        280
+                    )
+                    button.setAutoRepeatInterval(
+                        75
+                    )
+                    return button
+
+                self.view_left_button = direction_button(
+                    QStyle.StandardPixmap.SP_ArrowLeft,
+                    "Look left by the selected angular step (Shift+Left). "
+                    "Hold for continuous rotation.",
+                )
+                self.view_right_button = direction_button(
+                    QStyle.StandardPixmap.SP_ArrowRight,
+                    "Look right by the selected angular step (Shift+Right). "
+                    "Hold for continuous rotation.",
+                )
+                self.view_up_button = direction_button(
+                    QStyle.StandardPixmap.SP_ArrowUp,
+                    "Look up by the selected angular step (Shift+Up). "
+                    "Hold for continuous rotation.",
+                )
+                self.view_down_button = direction_button(
+                    QStyle.StandardPixmap.SP_ArrowDown,
+                    "Look down by the selected angular step (Shift+Down). "
+                    "Hold for continuous rotation.",
+                )
+
+                def rotation_button(
+                    symbol,
+                    tooltip,
+                ):
+                    button = tool_button(
+                        None,
+                        tooltip,
+                        text=symbol,
+                    )
+                    button.setFixedSize(
+                        38,
+                        30,
+                    )
+                    button.setAutoRepeat(
+                        True
+                    )
+                    button.setAutoRepeatDelay(
+                        280
+                    )
+                    button.setAutoRepeatInterval(
+                        75
+                    )
+                    button.setStyleSheet(
+                        "font-size: 18px; font-weight: 600;"
+                    )
+                    return button
+
+                self.view_ccw_button = rotation_button(
+                    "↺",
+                    "Rotate view counter-clockwise by the selected angular "
+                    "step ([). Hold for continuous roll.",
+                )
+                self.view_cw_button = rotation_button(
+                    "↻",
+                    "Rotate view clockwise by the selected angular step (]). "
+                    "Hold for continuous roll.",
+                )
 
                 self.play_button = tool_button(
                     style.standardIcon(
@@ -1578,6 +1871,37 @@ class ExploreWindow:
                 )
                 self.save_button.clicked.connect(
                     self._save_project
+                )
+
+                self.view_left_button.clicked.connect(
+                    lambda: self._nudge_view(
+                        yaw_direction=-1.0
+                    )
+                )
+                self.view_right_button.clicked.connect(
+                    lambda: self._nudge_view(
+                        yaw_direction=1.0
+                    )
+                )
+                self.view_up_button.clicked.connect(
+                    lambda: self._nudge_view(
+                        pitch_direction=1.0
+                    )
+                )
+                self.view_down_button.clicked.connect(
+                    lambda: self._nudge_view(
+                        pitch_direction=-1.0
+                    )
+                )
+                self.view_ccw_button.clicked.connect(
+                    lambda: self._nudge_view(
+                        roll_direction=-1.0
+                    )
+                )
+                self.view_cw_button.clicked.connect(
+                    lambda: self._nudge_view(
+                        roll_direction=1.0
+                    )
                 )
 
                 self.motion_combo.currentIndexChanged.connect(
@@ -1694,6 +2018,82 @@ class ExploreWindow:
                     self.camera_label
                 )
 
+                view_row = QHBoxLayout()
+                view_row.setSpacing(8)
+
+                view_title = QLabel(
+                    "View Direction"
+                )
+                view_title.setStyleSheet(
+                    "font-weight: 600;"
+                )
+
+                direction_pad = QGridLayout()
+                direction_pad.setHorizontalSpacing(3)
+                direction_pad.setVerticalSpacing(3)
+                direction_pad.setContentsMargins(
+                    0,
+                    0,
+                    0,
+                    0,
+                )
+                direction_pad.addWidget(
+                    self.view_up_button,
+                    0,
+                    1,
+                )
+                direction_pad.addWidget(
+                    self.view_left_button,
+                    1,
+                    0,
+                )
+                direction_pad.addWidget(
+                    self.view_right_button,
+                    1,
+                    2,
+                )
+                direction_pad.addWidget(
+                    self.view_down_button,
+                    2,
+                    1,
+                )
+
+                view_row.addWidget(
+                    view_title
+                )
+                view_row.addLayout(
+                    direction_pad
+                )
+                view_row.addSpacing(10)
+                view_row.addWidget(
+                    QLabel(
+                        "Roll"
+                    )
+                )
+                view_row.addWidget(
+                    self.view_ccw_button
+                )
+                view_row.addWidget(
+                    self.view_cw_button
+                )
+                view_row.addSpacing(8)
+                view_row.addWidget(
+                    QLabel(
+                        "Step"
+                    )
+                )
+                view_row.addWidget(
+                    self.view_step_combo
+                )
+                view_row.addWidget(
+                    QLabel(
+                        "Shift+Arrow   [ / ]"
+                    )
+                )
+                view_row.addStretch(
+                    1
+                )
+
                 motion_row = QHBoxLayout()
                 motion_row.setSpacing(6)
 
@@ -1762,6 +2162,9 @@ class ExploreWindow:
                     edit_row
                 )
                 controls_layout.addLayout(
+                    view_row
+                )
+                controls_layout.addLayout(
                     motion_row
                 )
                 controls_layout.addWidget(
@@ -1806,7 +2209,7 @@ class ExploreWindow:
                         860,
                         outer.landscape_size[0] + 32,
                     ),
-                    outer.landscape_size[1] + 190,
+                    outer.landscape_size[1] + 270,
                 )
                 self.setMinimumWidth(
                     minimum_width
@@ -2007,6 +2410,7 @@ class ExploreWindow:
                         outer.state.pitch_deg,
                         outer.state.fov_deg,
                         outer.state.aspect,
+                        roll_deg=outer.state.roll_deg,
                     )
                 )
 
@@ -2317,6 +2721,52 @@ class ExploreWindow:
             def _slider_released(self):
                 self._seek_to(float(self.slider.value()) / 1000.0)
 
+            def _view_step_degrees(self):
+                value = self.view_step_combo.currentData()
+                try:
+                    return max(
+                        0.01,
+                        float(
+                            value
+                        ),
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    return 1.0
+
+            def _nudge_view(
+                self,
+                *,
+                yaw_direction=0.0,
+                pitch_direction=0.0,
+                roll_direction=0.0,
+            ):
+                self._pause_playback()
+                step = self._view_step_degrees()
+                outer.state.nudge_view(
+                    yaw_delta_deg=(
+                        float(
+                            yaw_direction
+                        )
+                        * step
+                    ),
+                    pitch_delta_deg=(
+                        float(
+                            pitch_direction
+                        )
+                        * step
+                    ),
+                    roll_delta_deg=(
+                        float(
+                            roll_direction
+                        )
+                        * step
+                    ),
+                )
+                self._refresh()
+
             def _image_mouse_press(self, event: QMouseEvent):
                 if event.button() == Qt.MouseButton.LeftButton:
                     self._pause_playback()
@@ -2405,6 +2855,42 @@ class ExploreWindow:
 
                 if key == Qt.Key.Key_O:
                     self._set_trim_out()
+                    return
+
+                if key == Qt.Key.Key_BracketLeft:
+                    self._nudge_view(
+                        roll_direction=-1.0
+                    )
+                    return
+
+                if key == Qt.Key.Key_BracketRight:
+                    self._nudge_view(
+                        roll_direction=1.0
+                    )
+                    return
+
+                if shift and key in (
+                    Qt.Key.Key_Left,
+                    Qt.Key.Key_Right,
+                    Qt.Key.Key_Up,
+                    Qt.Key.Key_Down,
+                ):
+                    if key == Qt.Key.Key_Left:
+                        self._nudge_view(
+                            yaw_direction=-1.0
+                        )
+                    elif key == Qt.Key.Key_Right:
+                        self._nudge_view(
+                            yaw_direction=1.0
+                        )
+                    elif key == Qt.Key.Key_Up:
+                        self._nudge_view(
+                            pitch_direction=1.0
+                        )
+                    else:
+                        self._nudge_view(
+                            pitch_direction=-1.0
+                        )
                     return
 
                 if key == Qt.Key.Key_Left:
@@ -2520,6 +3006,9 @@ class ExploreWindow:
             "source_duration": self.source_duration,
             "yaw_deg": float(self.state.yaw_deg),
             "pitch_deg": float(self.state.pitch_deg),
+            "roll_deg": float(
+                self.state.roll_deg
+            ),
             "fov_deg": float(self.state.fov_deg),
             "aspect": self.state.aspect,
             "camera_position_markers": list(self.marker_times),
@@ -2577,6 +3066,7 @@ def explore_osv(
     source_time=None,
     yaw_deg=None,
     pitch_deg=None,
+    roll_deg=None,
     fov_deg=None,
     aspect="16:9",
     level_horizon=True,
@@ -2627,6 +3117,10 @@ def explore_osv(
                 f"{existing_clip.source!r} != {source!r}"
             )
 
+        assert_project_sources(
+            session.project,
+            clip_ids=[existing_clip.id],
+        )
         active_clip_id = (
             existing_clip.id
         )
@@ -2667,6 +3161,17 @@ def explore_osv(
     )
     initial_pitch = float(pitch_deg) if pitch_deg is not None else (
         float(path_sample.camera.pitch_deg) if path_sample is not None else 0.0
+    )
+    initial_roll = float(roll_deg) if roll_deg is not None else (
+        float(
+            getattr(
+                path_sample.camera,
+                "roll_deg",
+                0.0,
+            )
+        )
+        if path_sample is not None
+        else 0.0
     )
     initial_fov = float(fov_deg) if fov_deg is not None else (
         float(path_sample.camera.fov_deg) if path_sample is not None else 90.0
@@ -2785,6 +3290,17 @@ def explore_osv(
     initial_pitch = float(pitch_deg) if pitch_deg is not None else (
         float(path_sample.camera.pitch_deg) if path_sample is not None else 0.0
     )
+    initial_roll = float(roll_deg) if roll_deg is not None else (
+        float(
+            getattr(
+                path_sample.camera,
+                "roll_deg",
+                0.0,
+            )
+        )
+        if path_sample is not None
+        else 0.0
+    )
     initial_fov = float(fov_deg) if fov_deg is not None else (
         float(path_sample.camera.fov_deg) if path_sample is not None else 90.0
     )
@@ -2801,10 +3317,12 @@ def explore_osv(
     state = ExploreState(
         yaw_deg=initial_yaw,
         pitch_deg=initial_pitch,
+        roll_deg=initial_roll,
         fov_deg=initial_fov,
         aspect=initial_aspect,
         initial_yaw_deg=initial_yaw,
         initial_pitch_deg=initial_pitch,
+        initial_roll_deg=initial_roll,
         initial_fov_deg=initial_fov,
         initial_aspect=initial_aspect,
     )
@@ -2902,6 +3420,7 @@ def explore_osv(
         yaw_deg,
         pitch_deg,
         fov_deg,
+        roll_deg,
         aspect,
     ):
         if active_clip_id is not None:
@@ -2912,6 +3431,7 @@ def explore_osv(
                     yaw_deg=yaw_deg,
                     pitch_deg=pitch_deg,
                     fov_deg=fov_deg,
+                    roll_deg=roll_deg,
                     output_aspect=aspect,
                 )
             )
@@ -2922,6 +3442,7 @@ def explore_osv(
                 yaw_deg=yaw_deg,
                 pitch_deg=pitch_deg,
                 fov_deg=fov_deg,
+                roll_deg=roll_deg,
                 output_aspect=aspect,
             )
 
@@ -2983,6 +3504,28 @@ def explore_osv(
         return session_payload(
             transaction,
             source_time=source_time,
+            include_camera=True,
+        )
+
+    def move_position_callback(*, source_time, new_source_time):
+        if active_clip_id is None:
+            raise RuntimeError("Camera Position timeline move requires a Clip-id based editor")
+        frame_tolerance = max(
+            0.001,
+            0.51 / float(
+                cache_reader.fps if cache_reader is not None else max(preview_fps, 1.0)
+            ),
+        )
+        transaction = session.move_camera_position_from_clip(
+            active_clip_id,
+            source_time=source_time,
+            new_source_time=new_source_time,
+            source_duration=source_duration_value,
+            tolerance_s=frame_tolerance,
+        )
+        return session_payload(
+            transaction,
+            source_time=new_source_time,
             include_camera=True,
         )
 
@@ -3144,6 +3687,7 @@ def explore_osv(
         undo_callback=undo_callback,
         redo_callback=redo_callback,
         delete_callback=delete_callback,
+        move_position_callback=move_position_callback,
         aspect_callback=aspect_callback,
         discard_callback=discard_callback,
         trim_in_callback=set_trim_in_callback,

@@ -1406,3 +1406,45 @@ The previous fixed 1080p/30 fps policy is generalized only across the requested
 720p–1080p range. This keeps output geometry bounded while allowing a materially
 faster/smaller 720p delivery. Quality remains CRF-based H.264 with named presets
 rather than exposing codec parameters as the primary UI.
+
+
+---
+
+# 30. Export Progress and Completion UX — PanoPilot 0.38
+
+Long-running row-time/direct exports demonstrated that an indeterminate spinner
+is insufficient. 0.38 validates a structured progress-event contract without
+coupling Qt widgets into the media pipeline.
+
+Acceptance criteria:
+
+- progress never decreases;
+- rolling-shutter calibration visibly advances at candidate granularity;
+- frame rendering reports pass identity;
+- elapsed and estimated remaining time remain desktop-only presentation logic;
+- successful completion reports actual final file size;
+- export failure returns control to the Organizer.
+
+
+---
+
+# 32. Pointer-Independent Camera Framing — PanoPilot 0.39
+
+User evaluation showed that mouse dragging alone is insufficient for precise
+360 reframing. 0.39 adds deterministic angular navigation without changing
+View Path persistence semantics.
+
+Acceptance criteria:
+
+- all four view directions are accessible as visible controls;
+- 0.25 degree fine adjustment is available;
+- controls can be held for continuous movement;
+- keyboard equivalents exist;
+- no arrow navigation creates an edit until Set Camera.
+
+
+---
+
+# 29. Requirements Integrity Gate — PanoPilot 0.41
+
+0.41 normalizes duplicate requirement identifiers and makes traceability an executable build gate.

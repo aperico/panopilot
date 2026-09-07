@@ -19,7 +19,9 @@ from pathlib import Path
 import sys
 import time
 
-from .project import load_project
+from .export_ui import build_export_summary
+from .project import load_project, project_source_statuses
+from .source_validation import validate_source_recording
 from .session import ProjectSession
 from .source import probe_source
 from .timeline import build_project_timeline
@@ -46,51 +48,46 @@ def source_duration(source):
 def import_sources_into_session(
     session,
     sources,
+    *,
+    validate=False,
+    decode_smoke=True,
 ):
-    """
-    Import distinct sources in the provided order.
-
-    Repeated source instances are intentionally not supported yet. Existing
-    sources are reported as skipped rather than duplicated.
-    """
+    """Validate and import each selected Source Recording independently."""
     added = []
     skipped = []
+    rejected = []
 
     for source in sources:
         source = str(source)
 
-        if session.project.clips_for_source(
-            source
-        ):
-            skipped.append(
-                {
-                    "source": source,
-                    "reason": "already-in-project",
-                }
-            )
+        if session.project.clips_for_source(source):
+            skipped.append({"source": source, "reason": "already-in-project"})
+            continue
+
+        acceptance = (
+            validate_source_recording(source, decode_smoke=decode_smoke)
+            if validate
+            else None
+        )
+        if acceptance is not None and not acceptance.accepted:
+            rejected.append({
+                "source": source,
+                "reason": acceptance.reason,
+            })
             continue
 
         transaction = session.add_clip(
-            source
+            source,
+            source_identity_value=(acceptance.identity if acceptance is not None else None),
         )
-
-        operation = (
-            transaction.get("result")
-            or {}
-        )
-
+        operation = transaction.get("result") or {}
         if transaction.get("changed"):
-            added.append(
-                operation.get("clip_id")
-            )
+            added.append(operation.get("clip_id"))
 
     return {
-        "added_clip_ids": [
-            value
-            for value in added
-            if value is not None
-        ],
+        "added_clip_ids": [value for value in added if value is not None],
         "skipped": skipped,
+        "rejected": rejected,
         **session.state(),
     }
 
@@ -101,6 +98,10 @@ def clip_list_rows(
 ):
     durations = durations or {}
     rows = []
+    status_by_clip = {
+        item["clip_id"]: item
+        for item in project_source_statuses(project)
+    }
 
     for index, clip in enumerate(
         project.clips
@@ -150,6 +151,10 @@ def clip_list_rows(
                 "camera_position_count": len(
                     clip.camera_positions
                 ),
+                "source_status": status_by_clip.get(
+                    clip.id,
+                    {"status": "unknown", "message": "Source status unavailable"},
+                ),
             }
         )
 
@@ -184,6 +189,7 @@ def run_project_editor(
         import_sources_into_session(
             session,
             import_sources or [],
+            validate=True,
         )
     )
 
@@ -220,6 +226,14 @@ def run_project_editor(
     def duration_for_clip(clip):
         if clip.id in duration_cache:
             return duration_cache[clip.id]
+
+        source_status = next(
+            (item for item in project_source_statuses(session.project) if item["clip_id"] == clip.id),
+            None,
+        )
+        if source_status is not None and source_status["status"] != "ok":
+            duration_cache[clip.id] = None
+            return None
 
         try:
             value = source_duration(
@@ -477,6 +491,17 @@ def run_project_editor(
 
             self._refresh()
 
+            if initial_import.get("rejected"):
+                details = "\n".join(
+                    f"• {Path(item['source']).name}: {item['reason']}"
+                    for item in initial_import["rejected"]
+                )
+                QMessageBox.warning(
+                    self,
+                    "PanoPilot — Unsupported sources",
+                    "Some selected recordings could not be accepted:\n\n" + details,
+                )
+
             if (
                 initial_import["skipped"]
             ):
@@ -566,11 +591,18 @@ def run_project_editor(
                     else "source end"
                 )
 
-                missing = (
-                    ""
-                    if Path(row["source"]).is_file()
-                    else "  [SOURCE MISSING]"
-                )
+                source_status = row.get("source_status") or {}
+                status_code = source_status.get("status")
+                if status_code == "missing":
+                    missing = "  [SOURCE MISSING]"
+                elif status_code == "mismatch":
+                    missing = "  [SOURCE CHANGED — BLOCKED]"
+                elif status_code == "unreadable":
+                    missing = "  [SOURCE UNREADABLE — BLOCKED]"
+                elif status_code == "unverified":
+                    missing = "  [SOURCE IDENTITY UNVERIFIED]"
+                else:
+                    missing = ""
 
                 text = (
                     f"{row['number']:02d}   "
@@ -592,6 +624,8 @@ def run_project_editor(
                 )
                 item.setToolTip(
                     row["source"]
+                    + "\n"
+                    + str((row.get("source_status") or {}).get("message", ""))
                 )
                 self.list.addItem(
                     item
@@ -815,6 +849,7 @@ def run_project_editor(
                 import_sources_into_session(
                     session,
                     paths,
+                    validate=True,
                 )
             )
 
@@ -828,19 +863,24 @@ def run_project_editor(
                 selected
             )
 
+            messages = []
             if result["skipped"]:
                 names = ", ".join(
                     Path(item["source"]).name
-                    for item
-                    in result["skipped"]
+                    for item in result["skipped"]
                 )
+                messages.append("Already in project: " + names)
+            if result.get("rejected"):
+                details = "\n".join(
+                    f"Unsupported: {Path(item['source']).name} — {item['reason']}"
+                    for item in result["rejected"]
+                )
+                messages.append(details)
+            if messages:
                 QMessageBox.information(
                     self,
-                    "PanoPilot — Sources skipped",
-                    (
-                        "Already in project: "
-                        f"{names}"
-                    ),
+                    "PanoPilot — Sources not added",
+                    "\n\n".join(messages),
                 )
 
         def _remove_selected(self):
@@ -981,26 +1021,35 @@ def run_project_editor(
                 self._save()
             )
 
+        def _source_validation_failures(self, clip_ids=None):
+            selected = set(str(value) for value in clip_ids) if clip_ids is not None else None
+            return [
+                item
+                for item in project_source_statuses(session.project)
+                if (selected is None or item["clip_id"] in selected)
+                and item["status"] != "ok"
+            ]
+
+        def _show_source_validation_failures(self, failures, purpose):
+            if not failures:
+                return False
+            details = "\n".join(
+                f"• {item['clip_id']}: {Path(item['source']).name} — {item['status']}\n  {item['message']}"
+                for item in failures
+            )
+            QMessageBox.warning(
+                self,
+                "PanoPilot — Source validation blocked",
+                f"{purpose} cannot continue because referenced media is missing, unreadable, or changed:\n\n{details}",
+            )
+            return True
+
         def _export_project(self):
             if not session.project.clips:
                 return
 
-            missing = [
-                clip.source
-                for clip in session.project.clips
-                if not Path(clip.source).is_file()
-            ]
-
-            if missing:
-                QMessageBox.warning(
-                    self,
-                    "PanoPilot — Source missing",
-                    (
-                        "Project export requires all original source "
-                        "recordings. Missing:\n"
-                        + "\n".join(missing)
-                    ),
-                )
+            failures = self._source_validation_failures()
+            if self._show_source_validation_failures(failures, "Project Export"):
                 return
 
             if not self._save_before_child_window(
@@ -1009,8 +1058,10 @@ def run_project_editor(
                 return
 
             default_output = str(
-                project_path.with_suffix(
-                    ".mp4"
+                project_path.with_name(
+                    f"{project_path.stem}-"
+                    f"{session.project.output_resolution}-"
+                    f"{session.project.output_quality}.mp4"
                 )
             )
             output, _filter = (
@@ -1036,6 +1087,72 @@ def run_project_editor(
                     )
                 )
 
+            durations = {}
+            for clip in session.project.clips:
+                duration = duration_for_clip(
+                    clip
+                )
+                if duration is not None:
+                    durations[clip.id] = duration
+
+            timeline_duration = None
+            if len(durations) == len(
+                session.project.clips
+            ):
+                spans = build_project_timeline(
+                    session.project,
+                    durations,
+                )
+                timeline_duration = (
+                    spans[-1].timeline_end
+                    if spans
+                    else 0.0
+                )
+
+            export_summary = build_export_summary(
+                session.project,
+                output_path,
+                timeline_duration=(
+                    timeline_duration
+                ),
+            )
+
+            confirmation = QMessageBox(
+                self
+            )
+            confirmation.setWindowTitle(
+                "PanoPilot — Export Project"
+            )
+            confirmation.setIcon(
+                QMessageBox.Icon.Question
+            )
+            confirmation.setText(
+                "Ready to export?"
+            )
+            confirmation.setInformativeText(
+                export_summary["text"]
+                + "\n\nFile size depends on video content. "
+                "The source recordings are never modified."
+            )
+            export_now = confirmation.addButton(
+                "Export",
+                QMessageBox.ButtonRole.AcceptRole,
+            )
+            confirmation.addButton(
+                "Cancel",
+                QMessageBox.ButtonRole.RejectRole,
+            )
+            confirmation.setDefaultButton(
+                export_now
+            )
+            confirmation.exec()
+
+            if (
+                confirmation.clickedButton()
+                is not export_now
+            ):
+                return
+
             state["action"] = "export"
             state["clip_id"] = None
             state["output"] = str(
@@ -1045,6 +1162,10 @@ def run_project_editor(
 
         def _preview_project(self):
             if not session.project.clips:
+                return
+
+            failures = self._source_validation_failures()
+            if self._show_source_validation_failures(failures, "Project Preview"):
                 return
 
             if not self._save_before_child_window(
@@ -1071,17 +1192,13 @@ def run_project_editor(
             if clip is None:
                 return
 
-            if not Path(
-                clip.source
-            ).is_file():
-                QMessageBox.warning(
-                    self,
-                    "PanoPilot — Source missing",
-                    (
-                        "The selected source recording cannot be found:\n"
-                        f"{clip.source}"
-                    ),
-                )
+            failures = self._source_validation_failures(
+                [clip.id]
+            )
+            if self._show_source_validation_failures(
+                failures,
+                "Clip editing",
+            ):
                 return
 
             if not self._save_before_child_window(

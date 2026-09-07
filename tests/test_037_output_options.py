@@ -83,7 +83,7 @@ def test_output_options_round_trip_schema_v6():
     )
     data = project.to_dict()
 
-    assert data["schema_version"] == 6
+    assert data["schema_version"] == 8
     assert data["output_frame"]["resolution"] == "720p"
     assert data["output_frame"]["quality"] == "very-high"
 

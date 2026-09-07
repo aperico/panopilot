@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .project import load_project, resolve_project_clip
+from .project import assert_project_sources, load_project, resolve_project_clip
 from .reframe import reframe_osv_frame
 from .view_path import evaluate_clip_view_path
 
@@ -40,6 +40,7 @@ def render_project_view_at(
         project,
         source,
     )
+    assert_project_sources(project, clip_ids=[clip.id])
 
     # The selected Clip owns the authoritative source reference.
     source = clip.source
@@ -59,6 +60,7 @@ def render_project_view_at(
         source_time=source_time,
         yaw_deg=camera.yaw_deg,
         pitch_deg=camera.pitch_deg,
+        roll_deg=camera.roll_deg,
         fov_deg=camera.fov_deg,
         aspect=project.output_aspect,
         width=width,

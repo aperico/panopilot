@@ -8,6 +8,11 @@ import cv2
 from . import __version__
 from .cache import PreviewProfile, ensure_preview_cache
 from .explore import explore_osv
+from .export_ui import (
+    run_export_with_progress_dialog,
+    show_export_completion_dialog,
+    show_export_error_dialog,
+)
 from .dji import (
     extract_calibration,
     extract_orientation_samples,
@@ -239,6 +244,7 @@ def _cmd_reframe(args):
         source_time=args.time,
         yaw_deg=args.yaw,
         pitch_deg=args.pitch,
+        roll_deg=args.roll,
         fov_deg=args.fov,
         aspect=args.aspect,
         width=args.width,
@@ -262,6 +268,7 @@ def _cmd_explore(args):
         source_time=args.time,
         yaw_deg=args.yaw,
         pitch_deg=args.pitch,
+        roll_deg=args.roll,
         fov_deg=args.fov,
         aspect=args.aspect,
         level_horizon=not args.no_level_horizon,
@@ -384,27 +391,36 @@ def _cmd_project_edit(args):
                 )
 
             def export_task(progress):
-                def on_progress(event):
-                    progress(
-                        event.get(
-                            "message",
-                            "Exporting Project",
-                        )
-                    )
-
                 return export_project_video(
                     args.project,
                     output,
                     progress_callback=(
-                        on_progress
+                        progress
                     ),
                 )
 
-            result = run_with_loading_screen(
-                export_task,
-                title="PanoPilot",
-                message="Exporting Project",
-                detail=Path(output).name,
+            try:
+                result = (
+                    run_export_with_progress_dialog(
+                        export_task,
+                        output=output,
+                        expected_render_passes=1,
+                    )
+                )
+            except Exception as exc:
+                show_export_error_dialog(
+                    exc,
+                    output=output,
+                )
+                print(
+                    "Project export failed | "
+                    f"{exc}",
+                    file=sys.stderr,
+                )
+                continue
+
+            show_export_completion_dialog(
+                result
             )
 
             print(
@@ -1548,6 +1564,12 @@ def build_parser():
         help="Vertical orientation in degrees; positive = up",
     )
     reframe.add_argument(
+        "--roll",
+        type=float,
+        default=0.0,
+        help="View roll in degrees; positive = clockwise",
+    )
+    reframe.add_argument(
         "--fov",
         type=float,
         default=90.0,
@@ -1618,6 +1640,15 @@ def build_parser():
         type=float,
         default=None,
         help="Initial vertical camera orientation in degrees",
+    )
+    explore.add_argument(
+        "--roll",
+        type=float,
+        default=None,
+        help=(
+            "Initial camera roll in degrees; positive = clockwise. "
+            "Default uses the persisted View Path when available."
+        ),
     )
     explore.add_argument(
         "--fov",

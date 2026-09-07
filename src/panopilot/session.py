@@ -179,6 +179,7 @@ class ProjectSession:
         yaw_deg,
         pitch_deg,
         fov_deg,
+        roll_deg=0.0,
         output_aspect=None,
     ):
         return self.transact(
@@ -190,6 +191,7 @@ class ProjectSession:
                 yaw_deg=yaw_deg,
                 pitch_deg=pitch_deg,
                 fov_deg=fov_deg,
+                roll_deg=roll_deg,
                 output_aspect=output_aspect,
             ),
         )
@@ -202,6 +204,7 @@ class ProjectSession:
         yaw_deg,
         pitch_deg,
         fov_deg,
+        roll_deg=0.0,
         output_aspect=None,
     ):
         return self.transact(
@@ -214,6 +217,7 @@ class ProjectSession:
                     yaw_deg=yaw_deg,
                     pitch_deg=pitch_deg,
                     fov_deg=fov_deg,
+                    roll_deg=roll_deg,
                     output_aspect=output_aspect,
                 )
             ),
@@ -319,6 +323,50 @@ class ProjectSession:
 
         return self.transact("Stabilization", mutate)
 
+
+    def move_camera_position_from_clip(
+        self,
+        clip_id,
+        *,
+        source_time,
+        new_source_time,
+        source_duration=None,
+        tolerance_s=TIME_MATCH_TOLERANCE_S,
+    ):
+        clip_id = str(clip_id)
+        source_time = float(source_time)
+        new_source_time = float(new_source_time)
+        tolerance_s = max(TIME_MATCH_TOLERANCE_S, float(tolerance_s))
+        if source_duration is not None:
+            duration = float(source_duration)
+            if not 0.0 <= new_source_time <= duration + TIME_MATCH_TOLERANCE_S:
+                raise ValueError("Camera Position Source Time is outside the Source Recording")
+            new_source_time = min(max(0.0, new_source_time), duration)
+
+        def mutate(project):
+            clip = project.clip_for_id(clip_id)
+            if clip is None:
+                raise ValueError(f"Unknown Clip id: {clip_id}")
+            moved = clip.move_camera_position(
+                source_time,
+                new_source_time,
+                tolerance_s=tolerance_s,
+            )
+            if moved is None:
+                return {
+                    "moved": False,
+                    "reason": "no-camera-position-at-source-time",
+                    "clip_id": clip_id,
+                }
+            position = moved.pop("position")
+            return {
+                "moved": True,
+                "clip_id": clip_id,
+                **moved,
+                "camera_position": position.to_dict(),
+            }
+
+        return self.transact("Move Camera Position", mutate)
 
     def delete_camera_position_from_clip(
         self,
@@ -555,6 +603,7 @@ class ProjectSession:
         self,
         source,
         *,
+        source_identity_value=None,
         allow_duplicate_source=False,
     ):
         source = str(source)
@@ -562,6 +611,9 @@ class ProjectSession:
         def mutate(project):
             clip = project.add_clip(
                 source,
+                source_identity_value=(
+                    source_identity_value
+                ),
                 allow_duplicate_source=(
                     allow_duplicate_source
                 ),

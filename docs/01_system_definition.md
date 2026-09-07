@@ -1,7 +1,7 @@
 # PanoPilot — System Definition
 
 Status: Draft  
-Baseline: SD-0.23
+Baseline: SD-0.25
 Scope: Iteration 1
 
 ---
@@ -1306,3 +1306,50 @@ readout when the visual evidence does not support a non-zero correction.
 Final conventional video is constrained to 720p or 1080p at 30 fps. The saved
 Project Output Frame includes aspect, resolution class, and quality preset.
 Preview/cache geometry is not the final delivery geometry.
+
+
+---
+
+# 36. Desktop Export Experience — PanoPilot 0.38
+
+Final export is a foreground desktop workflow with three explicit User
+boundaries: confirmation, progress, and completion.
+
+The confirmation presents the saved Project output policy and destination.
+During rendering the desktop presents monotonic progress, current operation,
+elapsed time, and an estimated remaining time. Completion presents objective
+file facts and access to the containing folder.
+
+The media export remains transactional: the completed destination replaces the
+preparing file only after verification succeeds.
+
+
+---
+
+# 37. Precise View Navigation — PanoPilot 0.39
+
+The Clip Editor provides pointer-independent Virtual Camera orientation
+controls. Directional arrows modify the transient exploratory yaw/pitch using a
+selected deterministic angular step.
+
+Directional navigation does not itself create a Camera Position. The User must
+explicitly select Set Camera to persist the current view at Source Time.
+
+---
+
+# 36. Virtual Camera Roll Editing — PanoPilot 0.40
+
+A Camera Position now defines yaw, pitch, roll, FOV, and Source Time.
+
+Roll is user-facing output-frame rotation around the Virtual Camera forward
+axis. Positive roll rotates the conventional output view clockwise.
+
+Yaw, pitch, and roll can be adjusted independently through explicit on-screen
+controls without requiring mouse gestures.
+
+
+---
+
+# 37. Source Integrity and Requirements Closure — PanoPilot 0.41
+
+A source reference consists of a locating path plus expected sampled media identity. Mismatch is a blocked state, not an implicit relink. Camera Position Source Time is now directly editable by dragging its timeline marker without changing orientation/FOV.

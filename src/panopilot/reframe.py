@@ -19,6 +19,7 @@ def reframe_osv_frame(
     source_time=0.0,
     yaw_deg=0.0,
     pitch_deg=0.0,
+    roll_deg=0.0,
     fov_deg=90.0,
     aspect="16:9",
     width=None,
@@ -43,6 +44,9 @@ def reframe_osv_frame(
         yaw_deg=float(yaw_deg),
         pitch_deg=float(pitch_deg),
         fov_deg=float(fov_deg),
+        roll_deg=float(
+            roll_deg
+        ),
     )
     camera.validate()
 
@@ -77,6 +81,9 @@ def reframe_osv_frame(
         "virtual_camera": {
             "yaw_deg": float(camera.yaw_deg),
             "pitch_deg": float(camera.pitch_deg),
+            "roll_deg": float(
+                camera.roll_deg
+            ),
             "horizontal_fov_deg": float(camera.fov_deg),
         },
         "panorama": panorama_diagnostics,

@@ -31,6 +31,7 @@ def test_compact_camera_text():
     assert text == (
         "Yaw +10.0°   "
         "Pitch -3.0°   "
+        "Roll +0.0°   "
         "FOV 75.0°   "
         "16:9"
     )
