@@ -452,3 +452,8 @@ def rotate_equirectangular(image, rotation):
         interpolation=cv2.INTER_LINEAR,
         borderMode=cv2.BORDER_WRAP,
     )
+
+
+def stabilized_analysis_panorama(image, content_rotation):
+    """Return the gyro-corrected equirectangular frame for visual analysis."""
+    return rotate_equirectangular(image, content_rotation)

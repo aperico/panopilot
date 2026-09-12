@@ -65,7 +65,7 @@ def render_osv_panorama_frame(
 
         panorama = rotate_equirectangular(
             panorama,
-            rotation,
+            rotation.T,
         )
 
         leveling = {

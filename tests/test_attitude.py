@@ -4,6 +4,7 @@ from panopilot.attitude import (
     EQUIRECT_DOWN,
     IMU_TO_FACTORY_EQUIRECT,
     horizon_correction,
+    horizon_correction_from_gravity,
 )
 
 
@@ -18,6 +19,19 @@ def test_level_quaternion_needs_no_correction():
     correction, diagnostics = horizon_correction([1.0, 0.0, 0.0, 0.0])
     assert diagnostics["tilt_before_deg"] < 1e-9
     assert np.allclose(correction, np.eye(3), atol=1e-9)
+
+
+def test_horizon_rotation_moves_measured_gravity_to_image_down():
+    gravity = np.array([-0.25, -0.96, 0.12])
+    gravity /= np.linalg.norm(gravity)
+
+    correction, _diagnostics = horizon_correction_from_gravity(gravity)
+
+    assert np.allclose(
+        correction @ gravity,
+        EQUIRECT_DOWN,
+        atol=1e-9,
+    )
 
 
 def test_known_sample_quaternion_has_small_not_90_degree_tilt():

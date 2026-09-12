@@ -395,7 +395,7 @@ def render_preview(
                 )
                 if level_horizon:
                     tilts.append(diagnostics["tilt_before_deg"])
-                panorama = rotate_equirectangular(panorama, rotation)
+                panorama = rotate_equirectangular(panorama, rotation.T)
 
             try:
                 encoder.stdin.write(panorama.tobytes())

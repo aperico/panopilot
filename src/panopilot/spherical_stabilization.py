@@ -971,6 +971,7 @@ def analyze_spherical_camera_stabilization(
         "algorithm": (
             "spherical-rigid-3axis-visual-lock-v2"
         ),
+        "analysis_domain": "gyro-corrected-2to1-equirectangular-360-strip",
         "mode": "spherical",
         "correction_domain": (
             "virtual-camera-yaw-pitch-roll-before-final-360-reprojection"

@@ -43,6 +43,7 @@ from .video_encoding import SDR_VIDEO_PROPERTIES
 
 from .attitude import (
     gravity_equirectangular,
+    stabilized_analysis_panorama,
     smooth_unit_vectors_centered,
     stabilized_horizon_rotation,
 )
@@ -1386,6 +1387,7 @@ def _render_video_stream(
     render_pass_count=1,
     render_pass_label="Final render",
     visual_camera_offsets=None,
+    visual_analysis_output=None,
     progress_callback=None,
     cancel_callback=None,
 ):
@@ -1410,6 +1412,18 @@ def _render_video_stream(
         int(profile.width),
         int(profile.height),
     )
+    visual_analysis_writer = None
+    if visual_analysis_output is not None:
+        analysis_width = min(960, int(panorama_width))
+        analysis_height = max(2, analysis_width // 2)
+        visual_analysis_writer = cv2.VideoWriter(
+            str(visual_analysis_output),
+            cv2.VideoWriter_fourcc(*"mp4v"),
+            float(profile.fps),
+            (analysis_width, analysis_height),
+        )
+        if not visual_analysis_writer.isOpened():
+            raise RuntimeError("Could not open panoramic visual-analysis video")
     render_pipeline = str(render_pipeline).lower()
     if render_pipeline not in ("panorama", "direct"):
         raise ValueError("render_pipeline must be 'panorama' or 'direct'")
@@ -1502,6 +1516,7 @@ def _render_video_stream(
                     level_horizon=level_horizon,
                     level_strength=level_strength,
                 )
+                content_rotation = content_rotation.T
 
         source_time = float(
             exposure_times[
@@ -2097,6 +2112,7 @@ def _render_video_stream(
                         clip, 0, exposure_times, orientation_state,
                         group.first_frame_index,
                     )
+                    current_rotation = first_rotation
                     map_prefetcher.submit(first_camera, first_rotation)
                     try:
                         for local_index in range(group.frame_count):
@@ -2117,6 +2133,19 @@ def _render_video_stream(
                             with video_profiler.measure("factory_stitch"):
                                 panorama=mapper.stitch(lens0,lens1)
 
+                            if visual_analysis_writer is not None:
+                                stabilized_panorama = stabilized_analysis_panorama(
+                                    panorama,
+                                    current_rotation,
+                                )
+                                visual_analysis_writer.write(
+                                    cv2.resize(
+                                        stabilized_panorama,
+                                        (analysis_width, analysis_height),
+                                        interpolation=cv2.INTER_AREA,
+                                    )
+                                )
+
                             with video_profiler.measure("projection_map_wait"):
                                 map_result=map_prefetcher.result()
                             projection_profiler.add(
@@ -2129,6 +2158,7 @@ def _render_video_stream(
                                     clip, next_index, exposure_times, orientation_state,
                                     group.first_frame_index + next_index,
                                 )
+                                current_rotation = next_rotation
                                 map_prefetcher.submit(next_camera,next_rotation)
 
                             with video_profiler.measure("composed_projection"):
@@ -2321,6 +2351,8 @@ def _render_video_stream(
             )
 
     finally:
+        if visual_analysis_writer is not None:
+            visual_analysis_writer.release()
         if (
             cancel_callback is not None
             and cancel_callback()
@@ -3182,6 +3214,10 @@ def export_project_video(
                 temp_dir
                 / "project_video_spherical.mp4"
             )
+            video_visual_analysis = (
+                temp_dir
+                / "project_visual_analysis_360.mp4"
+            )
             audio_only = (
                 temp_dir
                 / "project_audio.m4a"
@@ -3198,6 +3234,12 @@ def export_project_video(
                         probes,
                         video_rendered,
                         profile=profile,
+                        visual_analysis_output=(
+                            video_visual_analysis
+                            if visual_stabilization
+                            and visual_stabilization_mode == "spherical"
+                            else None
+                        ),
                         panorama_width=(
                             panorama_width
                         ),
@@ -3344,7 +3386,7 @@ def export_project_video(
                         )
                         spherical_plan = (
                             analyze_spherical_camera_stabilization(
-                                video_rendered,
+                                video_visual_analysis,
                                 segments,
                                 amount=(
                                     stabilization_amount

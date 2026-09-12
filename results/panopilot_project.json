@@ -3,7 +3,7 @@
   "name": "Test Project",
   "output_frame": {
     "aspect": "16:9",
-    "resolution": "1080p",
+    "resolution": "720p",
     "quality": "very-high",
     "fps": "25"
   },
