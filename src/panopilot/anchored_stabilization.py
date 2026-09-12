@@ -37,6 +37,8 @@ import time
 import cv2
 import numpy as np
 
+from .video_encoding import video_encoder_command
+
 
 @dataclass(frozen=True)
 class AnchoredMeshPlan:
@@ -1812,42 +1814,10 @@ def render_anchored_stabilization(
         ),
     )
 
-    command = [
-        "ffmpeg",
-        "-y",
-        "-v",
-        "error",
-        "-f",
-        "rawvideo",
-        "-pix_fmt",
-        "bgr24",
-        "-s",
-        f"{width}x{height}",
-        "-r",
-        f"{fps:.9f}",
-        "-i",
-        "-",
-        "-an",
-        "-c:v",
-        "libx264",
-        "-preset",
-        str(
-            preset
-        ),
-        "-crf",
-        str(
-            int(
-                crf
-            )
-        ),
-        "-pix_fmt",
-        "yuv420p",
-        "-movflags",
-        "+faststart",
-        str(
-            output_video
-        ),
-    ]
+    command = video_encoder_command(
+        output_video, width=width, height=height, fps=fps,
+        crf=crf, preset=preset,
+    )
 
     try:
         encoder = subprocess.Popen(

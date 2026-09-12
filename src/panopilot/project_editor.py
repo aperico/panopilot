@@ -41,6 +41,7 @@ from .source import probe_source
 from .timeline import build_project_timeline
 from .timeline_navigation import TimelineViewport, proportional_clip_widths
 from .arrange_presenter import build_arrange_view_state
+from .arrange_drag import clip_drag_pixmap
 from .thumbnails import ensure_video_thumbnail, thumbnail_path_for_video
 from .workspace_presenter import (
     build_workspace_view_state,
@@ -188,6 +189,7 @@ def run_project_editor(
             QApplication,
             QAbstractItemView,
             QComboBox,
+            QCheckBox,
             QFileDialog,
             QDialog,
             QDialogButtonBox,
@@ -195,6 +197,7 @@ def run_project_editor(
             QHBoxLayout,
             QLabel,
             QLineEdit,
+            QLayout,
             QListView,
             QFrame,
             QGridLayout,
@@ -279,8 +282,10 @@ def run_project_editor(
                 )
                 self.header.setObjectName("secondaryText")
                 self.header.setWordWrap(False)
+                self.header.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
                 layout.addWidget(self.header)
                 self.thumbnail = QLabel()
+                self.thumbnail.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
                 self.thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.thumbnail.setScaledContents(False)
                 self.thumbnail.setFixedHeight(56)
@@ -320,14 +325,34 @@ def run_project_editor(
                 if (
                     self._press_pos is not None
                     and event.buttons() & Qt.MouseButton.LeftButton
-                    and (event.position().toPoint() - self._press_pos).manhattanLength() >= 8
+                    and (event.position().toPoint() - self._press_pos).manhattanLength() >= QApplication.startDragDistance()
                 ):
                     mime = QMimeData()
                     mime.setData(self.owner.MIME_TYPE, self.clip_id.encode("utf-8"))
                     drag = QDrag(self)
                     drag.setMimeData(mime)
-                    drag.exec(Qt.DropAction.MoveAction)
-                    self._press_pos = None
+                    ghost = clip_drag_pixmap(
+                        self._thumbnail_pixmap, self.row.source_name, self.row.duration
+                    )
+                    drag.setPixmap(ghost)
+                    drag.setHotSpot(QPoint(ghost.width() // 2, 48))
+                    self.setProperty("dragging", True)
+                    self.style().unpolish(self)
+                    self.style().polish(self)
+                    self.update()
+                    try:
+                        drag.exec(Qt.DropAction.MoveAction)
+                    finally:
+                        # A successful reorder may rebuild/delete the old cards
+                        # while Qt's native drag event loop is still active.
+                        from shiboken6 import isValid
+                        self._press_pos = None
+                        if isValid(self):
+                            self.setProperty("dragging", False)
+                            self.setCursor(Qt.CursorShape.OpenHandCursor)
+                            self.style().unpolish(self)
+                            self.style().polish(self)
+                            self.update()
                 else:
                     super().mouseMoveEvent(event)
 
@@ -344,11 +369,26 @@ def run_project_editor(
 
             def dragMoveEvent(self, event):
                 if event.mimeData().hasFormat(self.owner.MIME_TYPE):
+                    self.setProperty("dropSide", "after" if event.position().x() >= self.width() / 2 else "before")
+                    self.style().unpolish(self)
+                    self.style().polish(self)
+                    self.update()
                     event.acceptProposedAction()
                 else:
                     event.ignore()
 
+            def _clear_drop_hint(self):
+                self.setProperty("dropSide", "")
+                self.style().unpolish(self)
+                self.style().polish(self)
+                self.update()
+
+            def dragLeaveEvent(self, event):
+                self._clear_drop_hint()
+                event.accept()
+
             def dropEvent(self, event):
+                self._clear_drop_hint()
                 if not event.mimeData().hasFormat(self.owner.MIME_TYPE):
                     event.ignore()
                     return
@@ -633,8 +673,8 @@ def run_project_editor(
             self.resolution_combo.addItem("1440p QHD", "1440p")
             self.resolution_combo.addItem("2160p 4K UHD", "2160p")
             self.resolution_combo.setToolTip(
-                "Final video size. 1440p and 4K preserve substantially more reframed "
-                "detail from high-resolution Osmo 360 sources, at higher render cost."
+                "Larger frames take longer to export and create larger files. "
+                "Available detail depends on the recording and how far you zoom in."
             )
             self.fps_combo = QComboBox()
             self.fps_combo.addItem("Auto (60 fps recommended)", "auto")
@@ -653,8 +693,8 @@ def run_project_editor(
             self.quality_combo.addItem("Very High", "very-high")
             self.quality_combo.addItem("Master (largest file)", "master")
             self.quality_combo.setToolTip(
-                "H.264 constant-quality export. High uses CRF 16 / slow; Very High "
-                "uses CRF 13 / slow; Master uses CRF 10 / slow for later editing/transcoding."
+                "High balances detail and file size. Very High and Master create larger "
+                "files with less compression. Master is still a lossy video format."
             )
 
             self.stabilization_slider = QSlider(Qt.Orientation.Horizontal)
@@ -756,8 +796,8 @@ def run_project_editor(
             self.list.setUniformItemSizes(True)
             self.list.setIconSize(QSize(128, 72))
             self.list.setGridSize(QSize(210, 118))
-            self.list.setMinimumHeight(180)
-            self.list.setMaximumHeight(300)
+            self.list.setMinimumHeight(118)
+            self.list.setMaximumHeight(180)
             self.list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
             self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -884,14 +924,14 @@ def run_project_editor(
             self.editor_host_layout = QVBoxLayout(self.editor_host)
             self.editor_host_layout.setContentsMargins(0, 0, 0, 0)
 
-            # Home is intentionally sparse. Project identity and primary project
-            # workflows stay above a bottom Clip browser; Clip-level editing is
-            # entered by double-click/context menu, not by a persistent button.
+            # Home explains the next step and keeps clip editing discoverable.
+            # Shared actions preserve the same behavior as menus and shortcuts.
             self.home_panel = QFrame()
             self.home_panel.setObjectName("projectHome")
             home_layout = QVBoxLayout(self.home_panel)
-            home_layout.setContentsMargins(28, 24, 28, 18)
-            home_layout.setSpacing(14)
+            home_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+            home_layout.setContentsMargins(22, 14, 22, 12)
+            home_layout.setSpacing(10)
             home_layout.addStretch(1)
 
             self.home_logo_label = QLabel()
@@ -899,9 +939,9 @@ def run_project_editor(
             self.home_logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.home_logo_label.setToolTip("PanoPilot")
             self.home_logo_label.setPixmap(
-                render_svg_pixmap(wordmark_logo_path(), width=280, height=78)
+                render_svg_pixmap(wordmark_logo_path(), width=180, height=50)
             )
-            self.home_logo_label.setFixedSize(300, 84)
+            self.home_logo_label.setFixedSize(190, 54)
             self.home_logo_label.setScaledContents(False)
             logo_row = QHBoxLayout()
             logo_row.addStretch(1)
@@ -912,7 +952,8 @@ def run_project_editor(
             self.home_name_edit = QLineEdit()
             self.home_name_edit.setObjectName("projectNameEdit")
             self.home_name_edit.setMaxLength(120)
-            self.home_name_edit.setMinimumWidth(480)
+            self.home_name_edit.setAccessibleName("Project name")
+            self.home_name_edit.setMinimumWidth(0)
             self.home_name_edit.setMaximumWidth(760)
             self.home_name_edit.setMinimumHeight(42)
             self.home_name_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -927,6 +968,7 @@ def run_project_editor(
             home_layout.addLayout(name_row)
 
             self.home_path_label = QLabel()
+            self.home_path_label.setTextFormat(Qt.TextFormat.PlainText)
             self.home_path_label.setObjectName("secondaryText")
             self.home_path_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.home_path_label.setWordWrap(True)
@@ -937,23 +979,71 @@ def run_project_editor(
             self.home_summary_label.setWordWrap(True)
             home_layout.addWidget(self.home_summary_label)
 
-            home_actions = QHBoxLayout()
-            home_actions.addStretch(1)
+            self.home_heading = QLabel()
+            self.home_heading.setTextFormat(Qt.TextFormat.PlainText)
+            self.home_heading.setObjectName("workspaceTitle")
+            self.home_heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.home_heading.setWordWrap(True)
+            home_layout.addWidget(self.home_heading)
+            self.home_hint = QLabel()
+            self.home_hint.setObjectName("secondaryText")
+            self.home_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.home_hint.setWordWrap(True)
+            home_layout.addWidget(self.home_hint)
+
+            self.home_start_button = QPushButton("Add your first clips…")
+            self.home_start_button.setObjectName("primaryAction")
+            self.home_start_button.clicked.connect(self._add_files)
+            home_layout.addWidget(self.home_start_button, 0, Qt.AlignmentFlag.AlignHCenter)
+
+            self.home_workflow = QWidget()
+            self.home_workflow.setMaximumWidth(580)
+            home_actions = QGridLayout(self.home_workflow)
+            home_actions.setContentsMargins(0, 4, 0, 4)
+            home_actions.setSpacing(8)
+            self.home_edit_button = QPushButton("Edit Selected Clip")
+            self.home_edit_button.setObjectName("primaryAction")
+            self.home_edit_button.clicked.connect(lambda: self.edit_action.trigger())
             self.home_arrange_button = QPushButton("Arrange Clips")
+            self.home_arrange_button.setToolTip("Choose the order of clips in your final video")
             self.home_export_button = QPushButton("Export Final Video…")
-            self.home_open_button = QPushButton("Open Project…")
+            self.home_preview_button = QPushButton("Preview Project")
+            self.home_preview_button.setToolTip("Watch your clips in order before exporting")
             self.home_arrange_button.clicked.connect(lambda _checked=False: self._show_arrange_mode())
             self.home_export_button.clicked.connect(self._export_project)
+            self.home_preview_button.clicked.connect(lambda: self.preview_action.trigger())
+            home_actions.addWidget(self.home_edit_button, 0, 0)
+            home_actions.addWidget(self.home_arrange_button, 0, 1)
+            home_actions.addWidget(self.home_preview_button, 1, 0)
+            home_actions.addWidget(self.home_export_button, 1, 1)
+            home_actions.setColumnStretch(0, 1)
+            home_actions.setColumnStretch(1, 1)
+            workflow_row = QHBoxLayout()
+            workflow_row.addStretch(1)
+            workflow_row.addWidget(self.home_workflow, 1)
+            workflow_row.addStretch(1)
+            home_layout.addLayout(workflow_row)
+
+            utilities = QHBoxLayout()
+            utilities.addStretch(1)
+            self.home_open_button = QPushButton("Open Project…")
+            self.home_settings_button = QPushButton("Project Settings…")
+            for button in (self.home_open_button, self.home_settings_button):
+                button.setObjectName("quietAction")
+                utilities.addWidget(button)
             self.home_open_button.clicked.connect(self._open_project)
-            # Arrange is deliberately first: it is the primary project-level edit.
-            home_actions.addWidget(self.home_arrange_button)
-            home_actions.addWidget(self.home_export_button)
-            home_actions.addWidget(self.home_open_button)
-            home_actions.addStretch(1)
-            home_layout.addLayout(home_actions)
-            home_layout.addStretch(2)
-            self.editor_placeholder = self.home_panel
-            self.editor_host_layout.addWidget(self.home_panel, 1)
+            self.home_settings_button.clicked.connect(self._show_project_settings)
+            utilities.addStretch(1)
+            home_layout.addLayout(utilities)
+            home_layout.addStretch(1)
+            self.home_scroll = QScrollArea()
+            self.home_scroll.setObjectName("homeScroll")
+            self.home_scroll.setWidgetResizable(True)
+            self.home_scroll.setFrameShape(QFrame.Shape.NoFrame)
+            self.home_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.home_scroll.setWidget(self.home_panel)
+            self.editor_placeholder = self.home_scroll
+            self.editor_host_layout.addWidget(self.home_scroll, 1)
 
             self.clip_strip_frame = QFrame()
             self.clip_strip_frame.setObjectName("clipStripFrame")
@@ -1497,6 +1587,53 @@ def run_project_editor(
             ):
                 action.setVisible(selection_actions_visible)
             self.clip_selection_separator.setVisible(selection_actions_visible)
+            self.edit_action.setEnabled(selection_actions_visible)
+            self.remove_action.setEnabled(selection_actions_visible)
+            clip_ids = [clip.id for clip in session.project.clips]
+            index = clip_ids.index(self._selected_clip_id()) if has_selection else -1
+            self.move_earlier_action.setEnabled(selection_actions_visible and index > 0)
+            self.move_later_action.setEnabled(selection_actions_visible and index < len(clip_ids) - 1)
+            self._update_home_guidance()
+
+        def _update_home_guidance(self):
+            has_clips = bool(session.project.clips)
+            self.home_logo_label.setVisible(not has_clips)
+            self.home_path_label.setVisible(not has_clips)
+            selected = session.project.clip_for_id(self._selected_clip_id())
+            self.home_start_button.setVisible(not has_clips)
+            self.home_workflow.setVisible(has_clips)
+            self.home_edit_button.setEnabled(self.edit_action.isEnabled())
+            if not has_clips:
+                self.home_heading.setText("Start with your 360° recordings")
+                self.home_hint.setText("Add clips, choose your views, then arrange and export your video.")
+            elif selected is None:
+                self.home_heading.setText("Choose a clip to edit")
+                self.home_hint.setText("Select a clip below to reframe it or trim its start and end.")
+            else:
+                name = Path(selected.source).name
+                self.home_heading.setText(self.home_heading.fontMetrics().elidedText(
+                    f"Edit {name}", Qt.TextElideMode.ElideMiddle, 500
+                ))
+                self.home_heading.setToolTip(name)
+                snapshot = self._preview_snapshot(selected.id)
+                source_status = next(
+                    (item for item in project_source_statuses(session.project)
+                     if item["clip_id"] == selected.id), {}
+                )
+                if source_status.get("status") not in ("ok", "unverified"):
+                    hint = "Recording unavailable. Right-click the clip and choose View Clip Info for details."
+                    self.edit_action.setEnabled(False)
+                    self.home_edit_button.setEnabled(False)
+                elif snapshot is not None and snapshot.state == "failed":
+                    hint = "Preview preparation failed. Choose Edit Selected Clip to retry."
+                elif snapshot is not None and snapshot.state in ("queued", "running"):
+                    hint = "Preparing the preview. Choose Edit Selected Clip to open it when ready."
+                else:
+                    hint = "Reframe and trim this clip. Then arrange your clips and preview the project."
+                self.home_hint.setText(hint)
+            self.home_edit_button.setToolTip(
+                f"Reframe and trim {Path(selected.source).name}" if selected else "Select a clip below"
+            )
 
         def _edit_clip_index(self, index):
             """Open the exact Clip that was double-clicked.
@@ -1732,8 +1869,13 @@ def run_project_editor(
             stabilization_percent = presentation.stabilization_percent
             self.project_info.setText(presentation.summary)
             self.project_info.setToolTip(presentation.summary)
-            self.home_summary_label.setText(presentation.summary)
-            self.home_path_label.setText(f"Project file: {Path(project_path)}")
+            self.home_summary_label.setText(
+                f"{len(session.project.clips)} clips · "
+                f"{session.project.output_resolution} · {presentation.fps_summary}"
+            )
+            self.home_path_label.setText(Path(project_path).name)
+            self.home_path_label.setToolTip(str(project_path))
+            self.home_name_edit.setToolTip(f"Edit the project name.\nProject file: {project_path}")
             for name_edit in (self.home_name_edit, self.settings_name_edit):
                 if name_edit.text() != session.project.name:
                     name_edit.blockSignals(True)
@@ -1851,6 +1993,8 @@ def run_project_editor(
             self.add_action.setEnabled(workspace_available)
             self.home_add_clips_button.setEnabled(workspace_available and home_mode)
             self.home_open_button.setEnabled(workspace_available and home_mode)
+            self.home_start_button.setEnabled(workspace_available and home_mode)
+            self.home_settings_button.setEnabled(workspace_available and home_mode)
             self.remove_action.setEnabled(has_selection and workspace_available)
             self.move_earlier_action.setEnabled(has_selection and workspace_available)
             self.move_later_action.setEnabled(has_selection and workspace_available)
@@ -1860,6 +2004,7 @@ def run_project_editor(
             self.preview_action.setEnabled(
                 bool(session.project.clips) and workspace_available
             )
+            self.home_preview_button.setEnabled(self.preview_action.isEnabled() and home_mode)
             self.settings_action.setEnabled(workspace_available)
             self.show_clips_action.setEnabled(workspace_available)
             export_snapshot = (
@@ -1878,6 +2023,11 @@ def run_project_editor(
                 )
             )
             self.home_export_button.setEnabled(self.export_action.isEnabled() and home_mode)
+            self.home_export_button.setToolTip(self.home_summary_label.text())
+            self.clip_strip_frame.setVisible(
+                bool(session.project.clips) and home_mode and workspace_available
+                and self.show_clips_action.isChecked() and not self.focus_action.isChecked()
+            )
             self.home_arrange_button.setEnabled(bool(session.project.clips) and workspace_available and home_mode)
 
             if self.arrange_widget is not None and self.workspace_mode == "arrange":
@@ -2428,6 +2578,14 @@ def run_project_editor(
             confirmation.setDefaultButton(
                 export_now
             )
+            extra_smoothing_check = QCheckBox("Extra smoothing for final video (slower)")
+            extra_smoothing_check.setEnabled(session.project.stabilization_amount > 0.0)
+            extra_smoothing_check.setToolTip(
+                "Analyzes remaining motion and renders again from the 360° source. "
+                "Final framing may differ slightly from the preview. "
+                "Enable stabilization in Project Settings first."
+            )
+            confirmation.setCheckBox(extra_smoothing_check)
             confirmation.exec()
 
             if (
@@ -2435,6 +2593,8 @@ def run_project_editor(
                 is not export_now
             ):
                 return
+
+            extra_smoothing = extra_smoothing_check.isChecked()
 
             job_key = (
                 "export:"
@@ -2472,6 +2632,8 @@ def run_project_editor(
                     result = export_project_video(
                         snapshot_path,
                         output_path,
+                        visual_stabilization=extra_smoothing,
+                        visual_stabilization_mode="spherical",
                         progress_callback=(
                             context.progress
                         ),
@@ -2787,6 +2949,10 @@ def run_project_editor(
     widget.showMaximized()
     widget.raise_()
     widget.activateWindow()
+    if session.project.clips:
+        widget.list.setFocus()
+    else:
+        widget.home_start_button.setFocus()
 
     window_loop.exec()
 

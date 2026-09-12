@@ -38,6 +38,9 @@ import time
 import cv2
 import numpy as np
 
+from .video_encoding import video_encoder_command as _video_encoder_command
+from .video_encoding import SDR_VIDEO_PROPERTIES
+
 from .attitude import (
     gravity_equirectangular,
     smooth_unit_vectors_centered,
@@ -500,39 +503,6 @@ def _select_decoder_backend(
             + failure_text
         ),
     )
-
-
-def _video_encoder_command(
-    output,
-    *,
-    width,
-    height,
-    fps,
-    crf,
-    preset,
-):
-    return [
-        "ffmpeg",
-        "-y",
-        "-v", "error",
-        "-f", "rawvideo",
-        "-pix_fmt", "bgr24",
-        "-s:v", f"{int(width)}x{int(height)}",
-        "-r", f"{float(fps):.9f}",
-        "-i", "pipe:0",
-        "-map", "0:v:0",
-        "-c:v", "libx264",
-        "-preset", str(preset),
-        "-crf", str(int(crf)),
-        "-profile:v", "high",
-        "-pix_fmt", "yuv420p",
-        "-color_primaries", "bt709",
-        "-color_trc", "bt709",
-        "-colorspace", "bt709",
-        "-an",
-        "-movflags", "+faststart",
-        str(output),
-    ]
 
 
 def build_export_frame_groups(
@@ -2675,7 +2645,9 @@ def _mux_final(video, audio, output):
             "-map", "0:v:0",
             "-map", "1:a:0",
             "-c", "copy",
-            "-shortest",
+            # Audio is already padded/trimmed to the exact planned video
+            # duration. -shortest can discard the tail of reordered H.264
+            # packets during stream copy, depending on the B-frame pattern.
         ]
     else:
         cmd += [
@@ -2749,6 +2721,13 @@ def verify_project_export(
         )
 
     stream = video[0]
+
+    for field, expected in SDR_VIDEO_PROPERTIES.items():
+        if stream.get(field) != expected:
+            raise RuntimeError(
+                f"Export verification {field} mismatch: "
+                f"{stream.get(field)!r} != {expected!r}"
+            )
 
     if stream.get("codec_name") != "h264":
         raise RuntimeError(
@@ -2852,6 +2831,7 @@ def verify_project_export(
         "codec": stream.get(
             "codec_name"
         ),
+        "color": {field: stream[field] for field in SDR_VIDEO_PROPERTIES},
         "width": int(
             stream.get("width")
             or 0
@@ -3928,6 +3908,7 @@ def export_project_video(
         },
         "encoder": {
             "codec": "libx264",
+            "color": dict(SDR_VIDEO_PROPERTIES),
             "quality": quality_profile.to_dict(),
             "crf": int(
                 crf

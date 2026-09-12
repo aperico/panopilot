@@ -160,6 +160,48 @@ def _roll_coherence_weight(
     )
 
 
+def _spatial_coverage(q0, width, height):
+    """Return the fraction of a 3x3 image grid represented by inliers."""
+    if len(q0) == 0:
+        return 0.0
+    columns = np.clip(
+        (q0[:, 0] * 3.0 / max(float(width), 1.0)).astype(int),
+        0,
+        2,
+    )
+    rows = np.clip(
+        (q0[:, 1] * 3.0 / max(float(height), 1.0)).astype(int),
+        0,
+        2,
+    )
+    return float(len(np.unique(rows * 3 + columns)) / 9.0)
+
+
+def _suppress_pairwise_outliers(relative_motion):
+    """Suppress isolated optical-flow spikes without flattening real motion."""
+    motion = np.asarray(relative_motion, dtype=np.float64).copy()
+    if len(motion) < 5:
+        return motion, 0
+
+    # A short robust window handles a moving foreground object or a transient
+    # tracker failure. Floors retain deliberate camera moves in low-noise shots.
+    floors = np.array([1.25, 1.25, 0.16], dtype=np.float64)
+    rejected = 0
+    for index in range(len(motion)):
+        left = max(0, index - 3)
+        right = min(len(motion), index + 4)
+        neighborhood = motion[left:right]
+        median = np.median(neighborhood, axis=0)
+        mad = np.median(np.abs(neighborhood - median), axis=0)
+        limit = np.maximum(floors, 4.0 * 1.4826 * mad)
+        delta = motion[index] - median
+        clipped = np.clip(delta, -limit, limit)
+        if np.any(np.abs(delta) > limit):
+            rejected += 1
+        motion[index] = median + clipped
+    return motion, rejected
+
+
 def _estimate_rigid_motion(
     previous_gray,
     current_gray,
@@ -332,6 +374,9 @@ def _estimate_rigid_motion(
 
     q0 = p0[inlier_mask]
     q1 = p1[inlier_mask]
+    spatial_coverage = _spatial_coverage(q0, width, height)
+    if spatial_coverage < 0.34:
+        return None
     rotated = (
         (q0 - center[None, :])
         @ rotation.T
@@ -401,6 +446,7 @@ def _estimate_rigid_motion(
         "nuisance_scale": float(scale),
         "inlier_ratio": float(inlier_ratio),
         "accepted_tracks": int(inlier_count),
+        "spatial_coverage": float(spatial_coverage),
         "median_fit_residual_px": float(median_residual),
         "median_roundtrip_px": float(
             np.median(roundtrip)
@@ -444,12 +490,12 @@ def _smooth_rejected_velocity(
     # especially objectionable, so the visual roll lock is intentionally a bit
     # stronger/longer than X/Y residual steering.
     translation_sigma_s = (
-        0.12
-        + 0.32 * amount
+        0.16
+        + 0.60 * amount
     )
     roll_sigma_s = (
-        0.18
-        + 0.42 * amount
+        0.22
+        + 0.78 * amount
     )
 
     desired = relative_motion.copy()
@@ -603,6 +649,7 @@ def analyze_spherical_camera_stabilization(
     residuals = []
     roundtrip_errors = []
     nuisance_scales = []
+    spatial_coverages = []
     top_bottom_rotation = []
     left_right_rotation = []
     roll_coherence_weights = []
@@ -719,6 +766,13 @@ def analyze_spherical_camera_stabilization(
                 ]
             )
         )
+        spatial_coverages.append(
+            float(
+                estimate[
+                    "spatial_coverage"
+                ]
+            )
+        )
 
         if top_bottom_value is not None:
             top_bottom_rotation.append(
@@ -766,6 +820,11 @@ def analyze_spherical_camera_stabilization(
         if count <= 1:
             continue
 
+        local, rejected_outliers = (
+            _suppress_pairwise_outliers(
+                local
+            )
+        )
         correction, temporal = (
             _smooth_rejected_velocity(
                 local,
@@ -840,6 +899,9 @@ def analyze_spherical_camera_stabilization(
                 "first_frame": int(start),
                 "frame_count": int(count),
                 **temporal,
+                "robust_pairwise_outliers_rejected": int(
+                    rejected_outliers
+                ),
                 "translation_safety_gain": float(
                     translation_safety_gain
                 ),
@@ -915,9 +977,10 @@ def analyze_spherical_camera_stabilization(
         ),
         "crop_required_for_global_correction": False,
         "pairwise_motion_model": (
-            "ransac-rigid-translation-plus-roll-scale-discarded"
+            "ransac-rigid-translation-plus-roll-scale-discarded-with-3x3-coverage-gate"
         ),
         "temporal_model": (
+            "robust-median-mad-pairwise-velocity-gate-then-"
             "channel-aware-lowpass-pairwise-velocity-then-integrate-rejected-band"
         ),
         "analysis_width": int(
@@ -946,6 +1009,15 @@ def analyze_spherical_camera_stabilization(
                 )
             )
             if inlier_ratios
+            else 0.0
+        ),
+        "mean_inlier_spatial_coverage": (
+            float(
+                np.mean(
+                    spatial_coverages
+                )
+            )
+            if spatial_coverages
             else 0.0
         ),
         "median_fit_residual_px": (

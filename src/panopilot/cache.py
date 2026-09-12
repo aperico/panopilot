@@ -27,7 +27,7 @@ from .preview import render_preview
 from .source import probe_source
 
 
-CACHE_SCHEMA_VERSION = 1
+CACHE_SCHEMA_VERSION = 2  # Rebuild previews with frame-consistent horizon stabilization.
 
 
 @dataclass(frozen=True)

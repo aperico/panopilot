@@ -16,22 +16,21 @@ def test_home_clip_browser_is_bottom_wrapping_and_vertically_scrollable():
     assert "layout.addWidget(self.clip_strip_frame, 0)" in PROJECT_EDITOR
 
 
-def test_home_has_no_project_heading_edit_button_settings_button_or_double_click_label():
+def test_home_exposes_edit_and_settings_with_a_shrinkable_project_name():
     assert 'self.home_heading = QLabel("Project")' not in PROJECT_EDITOR
-    assert 'self.home_edit_button = QPushButton("Edit Selected Clip")' not in PROJECT_EDITOR
-    assert 'self.home_settings_button = QPushButton("Project Settings…")' not in PROJECT_EDITOR
+    assert 'self.home_edit_button = QPushButton("Edit Selected Clip")' in PROJECT_EDITOR
+    assert 'self.home_settings_button = QPushButton("Project Settings…")' in PROJECT_EDITOR
     assert "double-click to edit" not in PROJECT_EDITOR
     assert 'self.home_name_edit.setObjectName("projectNameEdit")' in PROJECT_EDITOR
-    assert "self.home_name_edit.setMinimumWidth(480)" in PROJECT_EDITOR
+    assert "self.home_name_edit.setMinimumWidth(0)" in PROJECT_EDITOR
 
 
-def test_home_primary_actions_put_arrange_first_and_expose_open_and_export():
-    arrange = PROJECT_EDITOR.index('home_actions.addWidget(self.home_arrange_button)')
-    export = PROJECT_EDITOR.index('home_actions.addWidget(self.home_export_button)')
-    open_project = PROJECT_EDITOR.index('home_actions.addWidget(self.home_open_button)')
-    assert arrange < export < open_project
+def test_home_workflow_orders_edit_arrange_preview_and_export():
+    assert 'home_actions.addWidget(self.home_edit_button, 0, 0)' in PROJECT_EDITOR
+    assert 'home_actions.addWidget(self.home_arrange_button, 0, 1)' in PROJECT_EDITOR
+    assert 'home_actions.addWidget(self.home_preview_button, 1, 0)' in PROJECT_EDITOR
+    assert 'home_actions.addWidget(self.home_export_button, 1, 1)' in PROJECT_EDITOR
     assert 'self.home_open_button = QPushButton("Open Project…")' in PROJECT_EDITOR
-    assert 'self.home_export_button = QPushButton("Export Final Video…")' in PROJECT_EDITOR
 
 
 def test_clip_browser_supports_multi_add_and_context_menu_actions():

@@ -13,6 +13,8 @@ from pathlib import Path
 import math
 import time
 
+from .branding import set_application_icon
+
 
 @dataclass(frozen=True)
 class ExportProgressSnapshot:
@@ -441,6 +443,7 @@ def run_export_with_progress_dialog(
             "PanoPilot"
         )
 
+    set_application_icon(app)
     output = Path(output)
     dialog = QDialog()
     dialog.setWindowTitle(
@@ -686,6 +689,7 @@ def show_export_completion_dialog(
             "PanoPilot"
         )
 
+    set_application_icon(app)
     output = Path(
         result["output"]
     )
@@ -808,6 +812,7 @@ def show_export_error_dialog(
             "PanoPilot"
         )
 
+    set_application_icon(app)
     detail = str(error)
     if output:
         detail += (

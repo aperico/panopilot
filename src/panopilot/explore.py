@@ -2094,10 +2094,10 @@ class ExploreWindow:
                 self.reframe_mode_button.setChecked(self.editor_mode == "reframe")
                 self.trim_mode_button.setChecked(self.editor_mode == "trim")
 
-                # Kept for contextual accessibility text/tooltips; no longer
-                # consumes a permanent row in the editor.
+                # Explain the active editing semantics where users can see them.
                 self.mode_hint = QLabel()
-                self.mode_hint.hide()
+                self.mode_hint.setObjectName("modeHint")
+                self.mode_hint.setWordWrap(True)
 
                 mode_row = QHBoxLayout()
                 mode_row.setContentsMargins(0, 0, 0, 0)
@@ -2303,6 +2303,7 @@ class ExploreWindow:
                 layout.setContentsMargins(8, 7, 8, 7)
                 layout.setSpacing(7)
                 layout.addLayout(mode_row)
+                layout.addWidget(self.mode_hint)
                 layout.addLayout(preview_row, 1)
                 layout.addWidget(controls_frame, 0)
 
@@ -2417,7 +2418,8 @@ class ExploreWindow:
 
                 if is_reframe:
                     self.mode_hint.setText(
-                        "Reframe: drag or use the fine controls; edits update the closest diamond to the left."
+                        "Drag to look around; scroll to zoom. Add a diamond to save a view. "
+                        "After a diamond, changes update that saved view."
                     )
                     self.slider.setToolTip(
                         "Reframe timeline. Click a Camera Position diamond to jump to it; "

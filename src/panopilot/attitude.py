@@ -331,7 +331,19 @@ def stabilized_horizon_rotation(
     if leveled_gravity is None:
         raise ValueError("leveled_gravity is required when level_horizon is enabled")
 
-    stabilized_gravity = stabilization @ np.asarray(leveled_gravity, dtype=np.float64)
+    # A temporally filtered gravity vector is no longer expressed in the
+    # instantaneous sensor attitude. Rotating it by the instantaneous shake
+    # correction makes the horizon stage undo pitch/roll stabilization. Blend
+    # toward gravity from that SAME raw attitude as stabilization is enabled.
+    # Full strength is frame-consistent; zero retains legacy horizon smoothing,
+    # and the gain curve makes the transition continuous near zero.
+    amount = max(0.0, min(1.0, float(stabilization_amount)))
+    gain = 1.0 - (1.0 - amount) ** 3
+    horizon_gravity = (
+        (1.0 - gain) * np.asarray(leveled_gravity, dtype=np.float64)
+        + gain * gravity_equirectangular(raw_quaternion)
+    )
+    stabilized_gravity = stabilization @ horizon_gravity
     horizon, diagnostics = horizon_correction_from_gravity(
         stabilized_gravity, strength=level_strength
     )

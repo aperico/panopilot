@@ -31,6 +31,7 @@ import time
 
 import cv2
 
+from .branding import set_application_icon
 from .cache import (
     PanoramaCacheReader,
     PreviewProfile,
@@ -1242,6 +1243,7 @@ def run_project_preview(
             "PanoPilot"
         )
 
+    set_application_icon(app)
     app.setQuitOnLastWindowClosed(
         False
     )

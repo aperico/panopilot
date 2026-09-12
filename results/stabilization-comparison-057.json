@@ -1,0 +1,38 @@
+{
+  "source": "CAM_20260829102703_0003_D.OSV",
+  "source_range_seconds": [
+    3,
+    5
+  ],
+  "output": "1280x720 at 50 fps",
+  "stabilization_amount": 0.75,
+  "rolling_shutter": "off in both runs",
+  "measurement": "RANSAC similarity fits to consecutive decoded frames, measured at 640x360; diagnostic, not ground truth",
+  "before": {
+    "frames": 100,
+    "tracked_pairs": 99,
+    "median_inlier_fraction": 0.875,
+    "center_step_rms_px_at_640_width": 1.8938969203362641,
+    "center_acceleration_rms_px_at_640_width": 0.937080595047344,
+    "rotation_step_rms_deg": 0.15254454703215312,
+    "rotation_acceleration_rms_deg": 0.14104961351046957
+  },
+  "after": {
+    "frames": 100,
+    "tracked_pairs": 99,
+    "median_inlier_fraction": 0.8564273789649416,
+    "center_step_rms_px_at_640_width": 1.8417353101838865,
+    "center_acceleration_rms_px_at_640_width": 0.7626552156326604,
+    "rotation_step_rms_deg": 0.044050536455893734,
+    "rotation_acceleration_rms_deg": 0.047196890686686914
+  },
+  "extra_smoothing": {
+    "frames": 100,
+    "tracked_pairs": 99,
+    "median_inlier_fraction": 0.91,
+    "center_step_rms_px_at_640_width": 1.4271511774767045,
+    "center_acceleration_rms_px_at_640_width": 0.5961753879188846,
+    "rotation_step_rms_deg": 0.08521980392286302,
+    "rotation_acceleration_rms_deg": 0.047840674685545884
+  }
+}

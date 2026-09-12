@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from panopilot.cache import (
+    CACHE_SCHEMA_VERSION,
     PreviewProfile,
     frame_index_for_time,
     preview_cache_key,
@@ -37,7 +38,7 @@ def test_cache_validity_requires_matching_identity_and_profile(tmp_path):
 
     import json
     meta.write_text(json.dumps({
-        "schema_version": 1,
+        "schema_version": CACHE_SCHEMA_VERSION,
         "source_identity": source_identity(source),
         "profile": profile.to_dict(),
     }))
@@ -49,6 +50,10 @@ def test_cache_validity_requires_matching_identity_and_profile(tmp_path):
         video,
         meta,
     )
+    metadata = json.loads(meta.read_text())
+    metadata["schema_version"] = 1
+    meta.write_text(json.dumps(metadata))
+    assert not preview_cache_is_valid(source, profile, video, meta)
 
 
 def test_frame_index_for_time_clamps_and_rounds():

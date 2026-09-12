@@ -2,6 +2,15 @@
 
 Current internal version: `0.52.2`
 
+## Workspace usability improvements
+
+An empty Project now starts with **Add your first clips**. Once clips are present,
+Home exposes **Edit Selected Clip → Arrange Clips → Preview Project → Export Final
+Video**, plus Project Settings. Selection updates Edit and reorder availability
+immediately. Preparation failures and missing recordings explain what to do next.
+Home scrolls in small windows instead of compressing controls, and Reframe/Trim
+show short instructions. See the [UX review](docs/12_ux_review.md).
+
 # 0.52 — Project Home, Clip browser, and multi-project files
 
 PanoPilot now treats the Home screen as the Project-level workspace and keeps
@@ -2703,3 +2712,11 @@ PanoPilot bundles `src/panopilot/assets/panopilot_logo.svg` for the Home-screen 
 ## Final export quality
 
 PanoPilot supports 720p, 1080p, 1440p, and 2160p/4K delivery. High is the recommended default (H.264 CRF 16 / slow); Very High uses CRF 13 / slow; Master uses CRF 10 / slow for archival or later transcoding. Higher resolutions and quality levels increase render time and file size.
+
+Final exports and optional residual-stabilization passes share explicit
+limited-range BT.709 conversion and color signaling. Export verification checks
+these properties in the finished MP4 before replacing the destination. Master
+is still lossy 8-bit H.264; 4K delivery dimensions cannot recover detail absent
+from the source or lost during reframing. See the
+[quality review and DJI Mimo comparison protocol](docs/11_export_quality_review.md)
+for verified fixes and the remaining comparative acceptance work.

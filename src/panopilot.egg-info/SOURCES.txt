@@ -4,6 +4,7 @@ src/panopilot/__init__.py
 src/panopilot/acceptance.py
 src/panopilot/acceptance_certificate.py
 src/panopilot/anchored_stabilization.py
+src/panopilot/arrange_drag.py
 src/panopilot/arrange_presenter.py
 src/panopilot/attitude.py
 src/panopilot/branding.py
@@ -44,6 +45,7 @@ src/panopilot/sweep.py
 src/panopilot/thumbnails.py
 src/panopilot/timeline.py
 src/panopilot/timeline_navigation.py
+src/panopilot/video_encoding.py
 src/panopilot/view_path.py
 src/panopilot/virtual_camera.py
 src/panopilot/visual_stabilization.py
@@ -182,6 +184,12 @@ tests/test_0522_menu_status_refinement.py
 tests/test_052_project_home_and_files.py
 tests/test_0531_branding_svg_paths.py
 tests/test_054_export_quality.py
+tests/test_055_export_color.py
+tests/test_056_home_workflow.py
+tests/test_057_arrange_drag.py
+tests/test_057_export_smoothing.py
+tests/test_057_final_mux.py
+tests/test_057_stabilization_composition.py
 tests/test_attitude.py
 tests/test_cache.py
 tests/test_dji.py

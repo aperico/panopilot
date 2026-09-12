@@ -12,162 +12,25 @@
     "strength": 1.0
   },
   "stabilization": {
-    "amount": 0.75,
+    "amount": 1.0,
     "algorithm": "adaptive-highrate-v1"
   },
   "clips": [
     {
-      "id": "clip-3",
-      "source": "/home/aperico/Videos/osmo/CAM_20260829104410_0007_D.OSV",
-      "source_identity": {
-        "algorithm": "sampled-sha256-v1",
-        "size": 10411550,
-        "fingerprint": "9c2a30c0d07b06cdbfd78c621c44937ec44fc8878c8d277737a236a09d611d9a",
-        "sample_bytes": 1048576,
-        "sample_offsets": [
-          0,
-          4681487,
-          9362974
-        ],
-        "resolved_path": "/home/aperico/Videos/osmo/CAM_20260829104410_0007_D.OSV",
-        "mtime_ns": 1788011052150000000
-      },
-      "trim": {
-        "in_source_time": 0.0,
-        "out_source_time": null
-      },
-      "camera_positions": [
-        {
-          "source_time": 0.0,
-          "yaw_deg": -129.96826171875014,
-          "pitch_deg": 12.568359374999995,
-          "fov_deg": 90.0,
-          "roll_deg": 0.0
-        },
-        {
-          "source_time": 0.05,
-          "yaw_deg": -129.96826171875014,
-          "pitch_deg": 12.568359374999995,
-          "fov_deg": 90.0,
-          "roll_deg": 0.0
-        },
-        {
-          "source_time": 0.55,
-          "yaw_deg": -129.96826171875014,
-          "pitch_deg": 12.568359374999995,
-          "fov_deg": 90.0,
-          "roll_deg": 15.0
-        },
-        {
-          "source_time": 0.6149961812499999,
-          "yaw_deg": -129.96826171875014,
-          "pitch_deg": 12.568359374999995,
-          "fov_deg": 90.0,
-          "roll_deg": 15.0
-        }
-      ]
-    },
-    {
-      "id": "clip-2",
-      "source": "/home/aperico/Videos/osmo/CAM_20260829102703_0003_D.OSV",
-      "source_identity": {
-        "algorithm": "sampled-sha256-v1",
-        "size": 266667840,
-        "fingerprint": "d9619df6078a52079fd38a4b79a9aa31c2ec9977f249cc4a15a7710236c6e42d",
-        "sample_bytes": 1048576,
-        "sample_offsets": [
-          0,
-          132809632,
-          265619264
-        ],
-        "resolved_path": "/home/aperico/Videos/osmo/CAM_20260829102703_0003_D.OSV",
-        "mtime_ns": 1788010043030000000
-      },
-      "trim": {
-        "in_source_time": 2.15,
-        "out_source_time": 13.4
-      },
-      "camera_positions": [
-        {
-          "source_time": 1.35,
-          "yaw_deg": 99.65112304687489,
-          "pitch_deg": 24.916259765624993,
-          "fov_deg": 120.0,
-          "roll_deg": 0.0
-        },
-        {
-          "source_time": 2.0988072359834558,
-          "yaw_deg": 99.65112304687489,
-          "pitch_deg": 24.916259765624993,
-          "fov_deg": 120.0,
-          "roll_deg": 0.0
-        },
-        {
-          "source_time": 3.0,
-          "yaw_deg": 99.65112304687489,
-          "pitch_deg": 24.916259765624993,
-          "fov_deg": 120.0,
-          "roll_deg": 0.0
-        },
-        {
-          "source_time": 4.2,
-          "yaw_deg": 99.65112304687489,
-          "pitch_deg": 24.916259765624993,
-          "fov_deg": 120.0,
-          "roll_deg": 0.0
-        },
-        {
-          "source_time": 6.25,
-          "yaw_deg": -78.39477539062517,
-          "pitch_deg": -29.193896484375,
-          "fov_deg": 120.0,
-          "roll_deg": 0.0
-        },
-        {
-          "source_time": 7.65,
-          "yaw_deg": 49.15439013061817,
-          "pitch_deg": -4.556180941227645,
-          "fov_deg": 120.0,
-          "roll_deg": 0.0
-        },
-        {
-          "source_time": 8.1,
-          "yaw_deg": 82.34569824946408,
-          "pitch_deg": -17.30508838545547,
-          "fov_deg": 120.0,
-          "roll_deg": 0.0
-        },
-        {
-          "source_time": 9.6,
-          "yaw_deg": 91.20963468672716,
-          "pitch_deg": 25.369295505187004,
-          "fov_deg": 120.0,
-          "roll_deg": 0.0
-        },
-        {
-          "source_time": 13.2,
-          "yaw_deg": 122.28864720624489,
-          "pitch_deg": -11.180258010432174,
-          "fov_deg": 120.0,
-          "roll_deg": 0.0
-        }
-      ]
-    },
-    {
       "id": "clip-1",
-      "source": "/home/aperico/workspace/osmo360/samples/osmosample.OSV",
+      "source": "/home/aperico/Videos/osmo/CAM_20260830135033_0061_D.OSV",
       "source_identity": {
         "algorithm": "sampled-sha256-v1",
-        "size": 90787959,
-        "fingerprint": "7f6252937b3afeff40bfdde2b3d36988e4dbd673ad6924ff418a0830826e4bac",
+        "size": 649591906,
+        "fingerprint": "d8bf81e47e8ddde6195fd3e52536ffe306dc7574f153676da5b5e4924e9900d2",
         "sample_bytes": 1048576,
         "sample_offsets": [
           0,
-          44869691,
-          89739383
+          324271665,
+          648543330
         ],
-        "resolved_path": "/home/aperico/workspace/osmo360/samples/osmosample.OSV",
-        "mtime_ns": 1788108774860000000
+        "resolved_path": "/home/aperico/Videos/osmo/CAM_20260830135033_0061_D.OSV",
+        "mtime_ns": 1788108681020000000
       },
       "trim": {
         "in_source_time": 0.0,
@@ -175,32 +38,53 @@
       },
       "camera_positions": [
         {
-          "source_time": 0.0,
-          "yaw_deg": 113.34883119639039,
-          "pitch_deg": -18.008593749999992,
+          "source_time": 3.95,
+          "yaw_deg": 78.93227030352739,
+          "pitch_deg": 11.222185192781,
           "fov_deg": 120.0,
-          "roll_deg": 10.0
+          "roll_deg": -14.0
         },
         {
-          "source_time": 1.35,
-          "yaw_deg": 90.95097656249993,
-          "pitch_deg": 2.4263671874999995,
+          "source_time": 10.35,
+          "yaw_deg": 51.1375871616078,
+          "pitch_deg": -3.216391509433931,
           "fov_deg": 120.0,
-          "roll_deg": 0.0
+          "roll_deg": 7.0
         },
         {
-          "source_time": 2.2,
-          "yaw_deg": -100.16484375000016,
-          "pitch_deg": -25.58613281249999,
+          "source_time": 11.354838921456558,
+          "yaw_deg": 91.08439294503694,
+          "pitch_deg": -15.001666324856405,
           "fov_deg": 120.0,
-          "roll_deg": 0.0
+          "roll_deg": 7.0
         },
         {
-          "source_time": 4.0,
-          "yaw_deg": 126.98613281250016,
-          "pitch_deg": -10.73261718749999,
+          "source_time": 21.4,
+          "yaw_deg": 54.36115668580797,
+          "pitch_deg": -14.886689909762065,
           "fov_deg": 120.0,
-          "roll_deg": 0.0
+          "roll_deg": -2.0
+        },
+        {
+          "source_time": 25.05,
+          "yaw_deg": 84.607644585726,
+          "pitch_deg": -26.335879819524166,
+          "fov_deg": 120.0,
+          "roll_deg": -2.0
+        },
+        {
+          "source_time": 34.25,
+          "yaw_deg": 85.66858080393769,
+          "pitch_deg": 5.6525584495488435,
+          "fov_deg": 120.0,
+          "roll_deg": -2.0
+        },
+        {
+          "source_time": 39.7,
+          "yaw_deg": 85.66858080393769,
+          "pitch_deg": 5.6525584495488435,
+          "fov_deg": 120.0,
+          "roll_deg": 14.0
         }
       ]
     }

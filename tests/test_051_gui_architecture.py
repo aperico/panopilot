@@ -34,12 +34,12 @@ def test_clip_editor_exposes_only_reframe_and_trim_modes():
     assert "mode_row.addWidget(self.arrange_mode_button)" not in source
 
 
-def test_project_home_edits_name_and_exposes_project_level_actions_only():
+def test_project_home_edits_name_and_exposes_edit_and_project_settings():
     source = _source(project_editor)
     assert 'self.home_name_edit = QLineEdit()' in source
     assert 'self.home_name_edit.setObjectName("projectNameEdit")' in source
-    assert 'self.home_settings_button = QPushButton("Project Settings…")' not in source
-    assert 'self.home_edit_button = QPushButton("Edit Selected Clip")' not in source
+    assert 'self.home_settings_button = QPushButton("Project Settings…")' in source
+    assert 'self.home_edit_button = QPushButton("Edit Selected Clip")' in source
     assert 'self.home_arrange_button = QPushButton("Arrange Clips")' in source
     assert 'self.home_export_button = QPushButton("Export Final Video…")' in source
     assert 'self.home_open_button = QPushButton("Open Project…")' in source

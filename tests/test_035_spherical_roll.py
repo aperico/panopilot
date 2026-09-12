@@ -5,6 +5,7 @@ import numpy as np
 
 from panopilot.spherical_stabilization import (
     _estimate_rigid_motion,
+    _suppress_pairwise_outliers,
     _smooth_rejected_velocity,
 )
 from panopilot.virtual_camera import (
@@ -206,3 +207,26 @@ def test_roll_velocity_gets_crop_free_high_frequency_correction():
     ] > diagnostics[
         "translation_sigma_seconds"
     ]
+
+
+def test_robust_pairwise_gate_removes_isolated_tracker_spike():
+    motion = np.zeros(
+        (15, 3),
+        dtype=np.float64,
+    )
+    motion[:, 0] = 1.0
+    motion[7] = [42.0, -31.0, 8.0]
+
+    filtered, rejected = _suppress_pairwise_outliers(
+        motion
+    )
+
+    assert rejected == 1
+    assert np.allclose(
+        filtered[7],
+        [2.25, -1.25, 0.16],
+    )
+    assert np.allclose(
+        filtered[[0, 1, -2, -1]],
+        motion[[0, 1, -2, -1]],
+    )

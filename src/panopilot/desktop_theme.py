@@ -227,19 +227,39 @@ QToolButton#backToProjectAction:hover {
     border-color: #586474;
 }
 
-QPushButton#primaryAction {
-    background: #3f7cff;
+QMainWindow#panopilotWorkspace QPushButton#primaryAction,
+QWidget#panopilotEditor QPushButton#primaryAction {
+    background: #2563eb;
     color: #ffffff;
     border: 1px solid #6698ff;
     border-radius: 6px;
     padding: 5px 12px;
     font-weight: 650;
 }
-QPushButton#primaryAction:hover {
-    background: #4d86ff;
+QMainWindow#panopilotWorkspace QPushButton#primaryAction:hover,
+QWidget#panopilotEditor QPushButton#primaryAction:hover {
+    background: #1d4ed8;
 }
-QPushButton#primaryAction:pressed {
-    background: #336eea;
+QMainWindow#panopilotWorkspace QPushButton#primaryAction:pressed,
+QWidget#panopilotEditor QPushButton#primaryAction:pressed {
+    background: #1e40af;
+}
+QMainWindow#panopilotWorkspace QPushButton#primaryAction:disabled,
+QWidget#panopilotEditor QPushButton#primaryAction:disabled {
+    color: #8893a3;
+    background: #252e3d;
+    border-color: #414956;
+}
+
+QMainWindow#panopilotWorkspace QPushButton:focus,
+QWidget#panopilotEditor QPushButton:focus,
+QDialog#settingsDialog QPushButton:focus,
+QMainWindow#panopilotWorkspace QPushButton#primaryAction:focus,
+QWidget#panopilotEditor QPushButton#primaryAction:focus {
+    border: 2px solid #b2ceff;
+}
+QListView#clipStrip:focus {
+    border: 1px solid #6b9cff;
 }
 
 QPushButton#quietAction,
@@ -344,6 +364,16 @@ QFrame#arrangeClipCard[selected="true"] {
 }
 QFrame#arrangeClipCard:hover {
     background: #2d333c;
+}
+QFrame#arrangeClipCard[dragging="true"] {
+    background: #171a1f;
+    border: 2px dashed #8bb4ff;
+}
+QFrame#arrangeClipCard[dropSide="before"] {
+    border-left: 4px solid #8bb4ff;
+}
+QFrame#arrangeClipCard[dropSide="after"] {
+    border-right: 4px solid #8bb4ff;
 }
 
 

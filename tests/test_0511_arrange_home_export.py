@@ -31,8 +31,8 @@ def test_arrange_uses_one_centered_aspect_preserving_thumbnail_per_clip():
     assert "thumb_layout" not in block
 
 
-def test_home_uses_clip_context_actions_and_final_export_without_edit_button():
-    assert 'self.home_edit_button = QPushButton("Edit Selected Clip")' not in SOURCE
+def test_home_exposes_edit_alongside_context_actions_and_final_export():
+    assert 'self.home_edit_button = QPushButton("Edit Selected Clip")' in SOURCE
     assert 'self.home_export_button = QPushButton("Export Final Video…")' in SOURCE
     assert 'edit_item = menu.addAction("Edit")' in SOURCE
     assert 'info_item = menu.addAction("View Clip Info")' in SOURCE

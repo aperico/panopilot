@@ -1,8 +1,10 @@
 # PanoPilot — Iteration-2 Requirements
 
 Status: Active baseline  
-Baseline: I2-SYS-0.4  
-Product release: PanoPilot 0.51.0  
+Baseline: I2-SYS-0.6
+
+Product release: PanoPilot 0.54.0 + export color and workspace improvements
+
 Parent baseline: Iteration 1 — **208/208 PASS, closed**
 
 ---
@@ -454,3 +456,102 @@ workflow.
 **Verification:** Test, Inspection, Demonstration
 
 **Status:** Implemented in PanoPilot 0.51.1.
+
+
+# 7. Final Export Quality
+
+## I2-QUALITY-001 — Explicit SDR Color Conversion and Signaling
+
+Final export shall convert full-range rendered BGR to limited-range BT.709
+YCbCr and persist BT.709 matrix, primaries, and transfer-function signaling.
+Final-file verification shall reject missing or incompatible color properties
+before replacing the destination. The report shall include verified properties.
+This requirement applies to the qualified SDR source profile; it does not imply
+HDR or D-Log color management.
+
+**Priority:** MUST
+
+**Verification:** Test
+
+## I2-QUALITY-002 — Stabilization Encoding Consistency
+
+The base renderer and visual, locked, extreme, and anchored stabilization
+renderers shall share the same final encoder/color policy, preserving requested
+resolution, frame rate, CRF, and preset.
+
+**Priority:** MUST
+
+**Verification:** Test, Inspection
+
+## I2-QUALITY-003 — Decoded Color Regression
+
+Regression tests shall encode and decode synthetic color patches at landscape,
+portrait, and HD dimensions. Interior luma samples shall differ by no more than
+2 code values from the independent limited-range BT.709 calculation; reconstructed
+BGR channels shall differ by no more than 4 code values at High quality.
+Tests shall verify the actual encoded metadata, not merely command arguments.
+
+**Priority:** MUST
+
+**Verification:** Test
+
+## I2-QUALITY-004 — Measured Mobile Comparison
+
+A claim of quality comparable to DJI Mimo shall require matched-source exports
+with recorded app version, phone, source mode, trim, framing/FOV, resolution,
+FPS, color mode, and stabilization settings. Comparison shall cover fine detail,
+stitching, motion cadence, stabilization, skin tones, and smooth gradients using
+the protocol in `11_export_quality_review.md`. Encoder settings alone shall not
+constitute acceptance evidence.
+
+**Priority:** MUST
+
+**Verification:** Demonstration, Analysis
+
+**Status:** OPEN — no matched DJI Mimo export is available in the repository.
+
+## I2-QUALITY-005 — Extended Delivery Profiles
+
+Iteration 2 shall permit 720p, 1080p, 1440p, and 2160p in landscape and portrait,
+with Standard, High, Very High, and Master quality settings. Master remains
+lossy 8-bit H.264 delivery, not a source-bit-depth-preserving master format.
+This extends the closed Iteration-1 resolution/quality scope without modifying
+its historical acceptance record. Output dimensions do not guarantee equivalent
+source detail after reframing.
+
+**Priority:** MUST
+
+**Verification:** Test, Inspection
+
+
+# 8. Guided Project Workflow
+
+## I2-UX-025 — Discoverable Next Action
+
+An empty Project shall offer a prominent Add Clips action and explain the editing
+sequence. With Clips present, Home shall expose Edit Selected Clip, Arrange,
+Preview, and Export, with Project Settings available before export. Selection
+changes shall immediately update Edit and reorder availability; editing shall
+target the selected Clip. Preview preparation, preparation failure, and unavailable
+recordings shall explain the next action without requiring a failed edit attempt.
+
+**Priority:** MUST
+
+**Verification:** Test, Demonstration
+
+**Status:** Implemented; Qt interaction tests pass. User workflow acceptance pending.
+
+## I2-UX-026 — Reachable Controls at Small Window Sizes
+
+At the supported 720×480 minimum workspace size, Home controls shall retain their
+usable size and shall not overlap. When content exceeds available height, the Home
+panel shall scroll and permit each action to be brought into view. Primary actions
+and keyboard focus shall have visible styling. Reframe and Trim shall display
+short instructions describing the active editing behavior.
+
+**Priority:** MUST
+
+**Verification:** Test, Inspection, Demonstration
+
+**Status:** Offscreen Qt layout and interaction checks pass; Fedora/Wayland and
+assistive-technology acceptance remain pending.

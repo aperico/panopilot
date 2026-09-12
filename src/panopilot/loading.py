@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from queue import Empty, SimpleQueue
 
+from .branding import set_application_icon
+
 
 def run_with_loading_screen(
     task,
@@ -50,6 +52,7 @@ def run_with_loading_screen(
         app = QApplication([])
         app.setApplicationName("PanoPilot")
 
+    set_application_icon(app)
     dialog = QDialog()
     dialog.setWindowTitle(str(title))
     dialog.setWindowModality(

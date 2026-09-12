@@ -1,6 +1,6 @@
 # PanoPilot — Iteration-2 Requirements Traceability
 
-Baseline: I2-RTM-0.7 / PanoPilot 0.51.0
+Baseline: I2-RTM-0.9 / PanoPilot 0.54.0 + export color and workspace improvements
 
 Iteration-1 traceability remains frozen in `06_requirements_traceability.md`
 at **208 PASS / 0 PARTIAL / 0 OPEN**.
@@ -40,14 +40,23 @@ at **208 PASS / 0 PARTIAL / 0 OPEN**.
 | I2-UX-022 | PASS | `project.py schema v10 / session.py / project_editor.py Save As + Home` | `tests/test_051_project_metadata.py / tests/test_051_gui_architecture.py` |
 | I2-UX-023 | PARTIAL | `arrange_presenter.py / project_editor.py ArrangeTimelineWidget` | `tests/test_051_arrange_presenter.py / tests/test_051_gui_architecture.py` |
 
+| I2-UX-024 | PARTIAL | `project_editor.py Home/edit/export actions` | `tests/test_0511_arrange_home_export.py`; desktop demonstration pending |
+| I2-QUALITY-001 | PASS | `video_encoding.py / project_export.py` | `tests/test_055_export_color.py`; real OSV export smoke |
+| I2-QUALITY-002 | PASS | shared `video_encoding.video_encoder_command` in all five renderers | `tests/test_055_export_color.py`; call-site inspection |
+| I2-QUALITY-003 | PASS | decoded-pixel and signaling regression | `tests/test_055_export_color.py` |
+| I2-QUALITY-004 | OPEN | matched DJI Mimo comparison protocol | `11_export_quality_review.md`; reference export pending |
+| I2-QUALITY-005 | PASS | `output_profile.py` | `tests/test_054_export_quality.py`; profile inspection |
+| I2-UX-025 | PARTIAL | `project_editor.py` guided Home and selection actions | `tests/test_056_home_workflow.py`; user acceptance pending |
+| I2-UX-026 | PARTIAL | `project_editor.py / desktop_theme.py / explore.py` | `tests/test_056_home_workflow.py`; screenshots inspected; native desktop acceptance pending |
+
 Current Iteration-2 state:
 
 ```text
-32 requirements
+40 requirements
 
-PASS       14
-PARTIAL    18
-OPEN        0
+PASS       18
+PARTIAL    21
+OPEN        1
 ```
 
 All 0.47/0.48/0.49/0.50/0.51 changes have automated implementation checks. Visual/user-facing UX
